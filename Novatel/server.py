@@ -425,8 +425,9 @@ def parse_rawimusxa(line):
 def parse_corrimudata(line):
     """
     Corrected IMU in vehicle body frame.
-    Output units: rates in rad/s (we convert to deg/s for display),
-    accelerations in m/s².
+    CORRIMUDATAA outputs delta angles (rad/sample) and delta velocities
+    (m/s per sample), NOT instantaneous rates. Divide by IMU_DT to get
+    true rates (rad/s, m/s²).
     """
     msg = _find_msg(line, 'CORRIMUDATAA')
     if not msg:
@@ -438,23 +439,22 @@ def parse_corrimudata(line):
         return None
     d = dict(zip(CORRIMUDATA_COLS, fields))
     try:
-        pr = float(d['pitch_rate'])
-        rr = float(d['roll_rate'])
-        yr = float(d['yaw_rate'])
+        IMU_DT = 0.01  # 100 Hz → 0.01 s per sample
+        pr = float(d['pitch_rate']) / IMU_DT
+        rr = float(d['roll_rate'])  / IMU_DT
+        yr = float(d['yaw_rate'])   / IMU_DT
         return {
             'week':      d.get('week', '0'),
             'seconds':   float(d.get('seconds', 0)),
-            # Rates: store both rad/s and deg/s
             'pitch_rate_rads': pr,
             'roll_rate_rads':  rr,
             'yaw_rate_rads':   yr,
             'pitch_rate_degs': pr * RAD2DEG,
             'roll_rate_degs':  rr * RAD2DEG,
             'yaw_rate_degs':   yr * RAD2DEG,
-            # Accelerations in m/s²
-            'lat_acc':    float(d['lat_acc']),
-            'long_acc':   float(d['long_acc']),
-            'vert_acc':   float(d['vert_acc']),
+            'lat_acc':    float(d['lat_acc'])  / IMU_DT,
+            'long_acc':   float(d['long_acc']) / IMU_DT,
+            'vert_acc':   float(d['vert_acc']) / IMU_DT,
         }
     except (ValueError, KeyError):
         return None
