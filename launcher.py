@@ -23,6 +23,8 @@ EVK     = HERE / 'EVK-M9DR'
 
 NOVATEL_PY = NOVATEL / '.venv' / 'bin' / 'python'
 EVK_PY     = sys.executable   # EVK uses system Python
+VENV_PY = HERE / '.venv' / 'bin' / 'python'
+PY  = str(VENV_PY) if VENV_PY.exists() else sys.executable
 
 NOVATEL_PORT = 5000
 EVK_PORT     = 5052
@@ -99,7 +101,7 @@ def _parse_evk(log_path: Path, session_start: datetime) -> pd.DataFrame:
 
 
 # ── Chart ─────────────────────────────────────────────────────────────────────
-
+'''
 def generate_chart(session_start: datetime) -> None:
     nov_csv = _find_novatel_csv(session_start)
     evk_log = EVK / 'EVK-M9DR-log.txt'
@@ -157,24 +159,22 @@ def generate_chart(session_start: datetime) -> None:
     plt.savefig(out, dpi=150, bbox_inches='tight')
     print(f'[chart] Saved → {out}')
     plt.show()
-
+'''
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     session_start = datetime.now(tz=timezone.utc)
 
-    nov_py = str(NOVATEL_PY) if NOVATEL_PY.exists() else sys.executable
-
     print(f'[launcher] NovAtel  → http://localhost:{NOVATEL_PORT}')
-    nov_proc = subprocess.Popen([nov_py, 'server.py'], cwd=NOVATEL)
+    nov_proc = subprocess.Popen([PY, 'server.py'], cwd=HERE)
 
     print(f'[launcher] EVK-M9DR WS  → ws://localhost:{EVK_PORT}')
-    evk_proc = subprocess.Popen([EVK_PY, 'EVK-M9DR-dashboard.py'], cwd=EVK)
+    evk_proc = subprocess.Popen([PY, 'EVK-M9DR-dashboard.py'], cwd=HERE)
 
     print(f'[launcher] EVK-M9DR HTTP → http://localhost:{EVK_HTTP_PORT}/EVK-M9DR-dashboard.html')
     evk_http = subprocess.Popen(
-        [EVK_PY, '-m', 'http.server', str(EVK_HTTP_PORT), '--directory', str(EVK)],
+        [PY, '-m', 'http.server', str(EVK_HTTP_PORT), '--directory', str(HERE)],
     )
 
     print('[launcher] All servers running. Press Ctrl+C to stop and generate chart.\n')
@@ -195,7 +195,7 @@ def main() -> None:
             evk_proc.kill()
             evk_http.kill()
         print('[launcher] Generating comparison chart...')
-        generate_chart(session_start)
+        subprocess.run([PY, str(HERE / 'compare.py'), '--save'], cwd=HERE)
 
 
 if __name__ == '__main__':
