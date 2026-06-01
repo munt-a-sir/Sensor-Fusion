@@ -148,9 +148,17 @@ def _write_imu_row(latest):
     now  = datetime.datetime.now()
     imu  = latest.get('imu')  or {}
     corr = latest.get('corr') or {}
+    # Use GPS measurement time embedded in the RAWIMUSXA header instead of
+    # datetime.now(), which lags 14–22 s behind the actual sample time due to
+    # serial buffer backlog at 100 Hz.
+    try:
+        gps_unix = GPS_EPOCH + int(imu['week']) * 604800 + float(imu['seconds']) - LEAP
+        unix_ts  = f'{gps_unix:.6f}'
+    except (KeyError, TypeError, ValueError):
+        unix_ts  = f'{now.timestamp():.6f}'
     _imu_w.writerow({
         'sys_datetime':       now.strftime('%Y-%m-%d %H:%M:%S.%f'),
-        'unix_timestamp':     f'{now.timestamp():.6f}',
+        'unix_timestamp':     unix_ts,
         'raw_accel_x_lsb':   imu.get('accel_x', ''),
         'raw_accel_y_lsb':   imu.get('accel_y', ''),
         'raw_accel_z_lsb':   imu.get('accel_z', ''),
@@ -345,7 +353,9 @@ WARN_INS  = {'INS_ALIGNING', 'INS_DETERMINING_ORIENTATION',
 GOOD_GNSS = {'SOL_COMPUTED'}
 WARN_GNSS = {'PENDING', 'COLD_START', 'INTEGRITY_WARNING'}
 
-RAD2DEG = 57.295779513
+RAD2DEG   = 57.295779513
+GPS_EPOCH = 315964800   # Unix timestamp of GPS epoch (1980-01-06 00:00:00 UTC)
+LEAP      = 18          # GPS − UTC leap seconds (current as of 2017, valid through at least 2025)
 
 # IMU type → (accel_scale m/s²/LSB, gyro_scale deg/s/LSB)
 # Type 61 = Epson G370N  (NovAtel OEM7 documentation)

@@ -52,6 +52,11 @@ def signed24(val):
 clients = set()
 esf_meas_latest   = {16: 0,   17: 0,   18: 0,   14: 0,   13: 0,   5: 0  }
 esf_meas_smoothed = {16: 0.0, 17: 0.0, 18: 0.0, 14: 0.0, 13: 0.0, 5: 0.0}
+# Tracks which ESF-MEAS data types have been updated since the last CSV row write.
+# The M9DR sends accel (16,17,18) and gyro (13,14,5) in separate messages; a row
+# is only written once ALL 6 types have been refreshed, preventing stale-axis rows.
+_esf_fresh: set = set()
+_ESF_ALL_TYPES = frozenset(esf_meas_latest.keys())
 
 async def broadcast(msg: dict):
     if clients:
@@ -191,6 +196,7 @@ async def serial_reader():
                             esf_meas_smoothed[k] = (
                                 EMA_ALPHA * v + (1 - EMA_ALPHA) * esf_meas_smoothed[k]
                             )
+                            _esf_fresh.add(k)
                     ax = round(esf_meas_smoothed[16] * ACCEL_SCALE, 4)
                     ay = round(esf_meas_smoothed[17] * ACCEL_SCALE, 4)
                     az = round(esf_meas_smoothed[18] * ACCEL_SCALE, 4)
@@ -206,25 +212,30 @@ async def serial_reader():
                             "accel": {"x": ax, "y": ay, "z": az},
                             "gyro":  {"x": gx, "y": gy, "z": gz},
                         }
-                    now = datetime.now()
-                    imu_w.writerow({
-                        'sys_datetime':    now.strftime('%Y-%m-%d %H:%M:%S.%f'),
-                        'unix_timestamp':  f'{now.timestamp():.6f}',
-                        'accel_x_ms2':     round(esf_meas_latest[16] * ACCEL_SCALE, 6),
-                        'accel_y_ms2':     round(esf_meas_latest[17] * ACCEL_SCALE, 6),
-                        'accel_z_ms2':     round(esf_meas_latest[18] * ACCEL_SCALE, 6),
-                        'gyro_x_degs':     round(esf_meas_latest[14] * GYRO_SCALE, 6),
-                        'gyro_y_degs':     round(esf_meas_latest[13] * GYRO_SCALE, 6),
-                        'gyro_z_degs':     round(esf_meas_latest[5]  * GYRO_SCALE, 6),
-                        'ins_accel_x_ms2': log_state.get('vax', ''),
-                        'ins_accel_y_ms2': log_state.get('vay', ''),
-                        'ins_accel_z_ms2': log_state.get('vaz', ''),
-                        'ins_gyro_x_degs': log_state.get('vgx', ''),
-                        'ins_gyro_y_degs': log_state.get('vgy', ''),
-                        'ins_gyro_z_degs': log_state.get('vgz', ''),
-                        'heading_deg':     log_state.get('ths_hdg', ''),
-                        'nav_hdg':         log_state.get('nav_hdg', ''),
-                    })
+                    # Only write a CSV row once every axis has been freshly updated.
+                    # The M9DR sends accel and gyro in separate ESF-MEAS messages,
+                    # so writing on every message would produce rows with half-stale axes.
+                    if _ESF_ALL_TYPES.issubset(_esf_fresh):
+                        _esf_fresh.clear()
+                        now = datetime.now()
+                        imu_w.writerow({
+                            'sys_datetime':    now.strftime('%Y-%m-%d %H:%M:%S.%f'),
+                            'unix_timestamp':  f'{now.timestamp():.6f}',
+                            'accel_x_ms2':     round(esf_meas_latest[16] * ACCEL_SCALE, 6),
+                            'accel_y_ms2':     round(esf_meas_latest[17] * ACCEL_SCALE, 6),
+                            'accel_z_ms2':     round(esf_meas_latest[18] * ACCEL_SCALE, 6),
+                            'gyro_x_degs':     round(esf_meas_latest[14] * GYRO_SCALE, 6),
+                            'gyro_y_degs':     round(esf_meas_latest[13] * GYRO_SCALE, 6),
+                            'gyro_z_degs':     round(esf_meas_latest[5]  * GYRO_SCALE, 6),
+                            'ins_accel_x_ms2': log_state.get('vax', ''),
+                            'ins_accel_y_ms2': log_state.get('vay', ''),
+                            'ins_accel_z_ms2': log_state.get('vaz', ''),
+                            'ins_gyro_x_degs': log_state.get('vgx', ''),
+                            'ins_gyro_y_degs': log_state.get('vgy', ''),
+                            'ins_gyro_z_degs': log_state.get('vgz', ''),
+                            'heading_deg':     log_state.get('ths_hdg', ''),
+                            'nav_hdg':         log_state.get('nav_hdg', ''),
+                        })
             
             elif identity == "ESF-STATUS":
                 FUSION_NAMES = {0: 'Initializing', 1: 'Fusion', 2: 'Suspended', 3: 'Disabled'}
