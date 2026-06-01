@@ -157,6 +157,13 @@ def _inject_novatel_heading(nov: pd.DataFrame, nov_path: Path) -> pd.DataFrame:
     return nov.join(hz10, how='left').ffill()
 
 
+def _dedupe(df: pd.DataFrame, col: str) -> pd.DataFrame:
+    """Drop duplicate IMU pairs — keep only rows where col changes from the previous row."""
+    if col not in df.columns:
+        return df
+    return df[df[col] != df[col].shift(1)]
+
+
 def _drop_inactive(df: pd.DataFrame, cols: list) -> pd.DataFrame:
     """Drop rows where all given columns are zero or NaN (sensor not yet active)."""
     existing = [c for c in cols if c in df.columns]
@@ -169,8 +176,13 @@ def _clip_overlap(a: pd.DataFrame, b: pd.DataFrame):
     start = max(a.index.min(), b.index.min())
     end   = min(a.index.max(), b.index.max())
     if start >= end:
-        print('[compare] Warning: logs do not overlap in time — plotting full range.')
-        return a, b
+        raise SystemExit(
+            f'[compare] Error: logs do not overlap in time — cannot plot.\n'
+            f'  EVK:     {a.index.min()} → {a.index.max()}\n'
+            f'  NovAtel: {b.index.min()} → {b.index.max()}\n'
+            f'Pass matching log files from the same session, or check that both\n'
+            f'devices were running simultaneously.'
+        )
     return a.loc[start:end], b.loc[start:end]
 
 
@@ -236,6 +248,8 @@ def main() -> None:
 
     evk = _load(evk_path)
     nov = _load(nov_path)
+    evk = _dedupe(evk, 'accel_x_ms2')
+    nov = _dedupe(nov, 'raw_accel_x_ms2')
     evk = _inject_evk_heading(evk, evk_path)
     nov = _inject_novatel_heading(nov, nov_path)
     nov = _drop_inactive(nov, NOV_RAW_COLS)
