@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>EVK-M9DR Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0e1117;
+      color: #e0e0e0;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 13px;
+      padding: 16px;
+    }
+
+    h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #7eb8f7;
+      margin-bottom: 4px;
+      letter-spacing: 0.05em;
+    }
+
+    #status {
+      font-size: 11px;
+      margin-bottom: 16px;
+      color: #888;
+    }
+
+    #status span {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+      background: #f44;
+      vertical-align: middle;
+    }
+
+    #status.connected span { background: #4f4; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 12px;
+    }
+
+    .panel {
+      background: #161b22;
+      border: 1px solid #2a2f3a;
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    .panel h2 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #7eb8f7;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #2a2f3a;
+      padding-bottom: 8px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+    }
+
+    .label {
+      color: #888;
+      font-size: 11px;
+      min-width: 60px;
+    }
+
+    .value {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e0e0e0;
+      text-align: right;
+      flex: 1;
+      transition: color 0.15s;
+    }
+
+    .value.positive { color: #4fc3f7; }
+    .value.negative { color: #ef9a9a; }
+    .value.unit {
+      font-size: 10px;
+      font-weight: 400;
+      color: #555;
+      margin-left: 6px;
+      min-width: 40px;
+      text-align: left;
+    }
+
+    .bar-wrap {
+      flex: 1;
+      height: 4px;
+      background: #2a2f3a;
+      border-radius: 2px;
+      margin: 0 10px;
+      overflow: hidden;
+    }
+
+    .bar {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.1s, background 0.1s;
+      background: #4fc3f7;
+    }
+
+    .stale { opacity: 0.35; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      background: #2a2f3a;
+      color: #aaa;
+    }
+
+    .badge.mode-0 { background: #1a2a1a; color: #4caf50; }
+    .badge.mode-1 { background: #2a2a1a; color: #ffeb3b; }
+    .badge.mode-2 { background: #1a1a2a; color: #7eb8f7; }
+
+    .sensor-block { border-bottom: 1px solid #1e242e; padding: 4px 0; }
+    .sensor-block:last-child { border-bottom: none; }
+    .sensor-row {
+      display: grid;
+      grid-template-columns: 90px 1fr 1fr 1fr 1fr;
+      gap: 4px;
+      font-size: 11px;
+      align-items: center;
+    }
+    .sensor-status2 {
+      display: grid;
+      grid-template-columns: 90px 1fr 1fr;
+      gap: 4px;
+      font-size: 11px;
+      align-items: center;
+      padding-top: 2px;
+    }
+    .sensor-header { color: #555; font-size: 10px; }
+    .pill {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .pill.ok   { background: #1a2a1a; color: #4caf50; }
+    .pill.warn { background: #2a2a1a; color: #ffeb3b; }
+    .pill.off  { background: #222; color: #555; }
+
+    #log-panel {
+      grid-column: 1 / -1;
+    }
+    #log-entries {
+      height: 160px;
+      overflow-y: auto;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    .log-entry { padding: 2px 0; border-bottom: 1px solid #1e242e; display: flex; gap: 10px; }
+    .log-entry:last-child { border-bottom: none; }
+    .log-ts   { color: #555; min-width: 90px; }
+    .log-info  { color: #7eb8f7; }
+    .log-warn  { color: #ffeb3b; }
+    .log-error { color: #ef9a9a; }
+  </style>
+</head>
+<body>
+
+<h1>EVK-M9DR Live Dashboard</h1>
+<div id="status"><span></span>Disconnected</div>
+<div style="font-size:12px;color:#888;margin-bottom:12px;">UTC: <span id="utc-top" style="color:#e0e0e0;font-weight:600;">—</span></div>
+
+<div class="grid">
+  <!-- ESF-MEAS -->
+  <div class="panel" id="panel-esf-meas">
+    <h2>ESF-MEAS — Raw IMU Data</h2>
+    <div class="row"><span class="label">Accel X</span><div class="bar-wrap"><div class="bar" id="bar-ax"></div></div><span class="value" id="ax">—</span><span class="value unit">m/s²</span></div>
+    <div class="row"><span class="label">Accel Y</span><div class="bar-wrap"><div class="bar" id="bar-ay"></div></div><span class="value" id="ay">—</span><span class="value unit">m/s²</span></div>
+    <div class="row"><span class="label">Accel Z</span><div class="bar-wrap"><div class="bar" id="bar-az"></div></div><span class="value" id="az">—</span><span class="value unit">m/s²</span></div>
+    <div style="margin: 8px 0; border-top: 1px solid #2a2f3a;"></div>
+    <div class="row"><span class="label">Gyro X</span><div class="bar-wrap"><div class="bar" id="bar-gx"></div></div><span class="value" id="gx">—</span><span class="value unit">°/s</span></div>
+    <div class="row"><span class="label">Gyro Y</span><div class="bar-wrap"><div class="bar" id="bar-gy"></div></div><span class="value" id="gy">—</span><span class="value unit">°/s</span></div>
+    <div class="row"><span class="label">Gyro Z</span><div class="bar-wrap"><div class="bar" id="bar-gz"></div></div><span class="value" id="gz">—</span><span class="value unit">°/s</span></div>
+  </div>
+
+  <!-- ESF-INS -->
+  <div class="panel" id="panel-esf-ins">
+    <h2>ESF-INS — Compensated IMU </h2>
+    <p>Waits for mount alignment</p>
+    <div class="row"><span class="label">Mount Alignement Status</span><span class="label" id="mounting-status">—</span></div>
+    <div class="row"><span class="label">Accel X</span><div class="bar-wrap"><div class="bar" id="bar-iax"></div></div><span class="value" id="iax"></span><span class="value unit">m/s²</span></div>
+    <div class="row"><span class="label">Accel Y</span><div class="bar-wrap"><div class="bar" id="bar-iay"></div></div><span class="value" id="iay">—</span><span class="value unit">m/s²</span></div>
+    <div class="row"><span class="label">Accel Z</span><div class="bar-wrap"><div class="bar" id="bar-iaz"></div></div><span class="value" id="iaz">—</span><span class="value unit">m/s²</span></div>
+    <div style="margin: 8px 0; border-top: 1px solid #2a2f3a;"></div>
+    <div class="row"><span class="label">Gyro X</span><div class="bar-wrap"><div class="bar" id="bar-igx"></div></div><span class="value" id="igx">—</span><span class="value unit">°/s</span></div>
+    <div class="row"><span class="label">Gyro Y</span><div class="bar-wrap"><div class="bar" id="bar-igy"></div></div><span class="value" id="igy">—</span><span class="value unit">°/s</span></div>
+    <div class="row"><span class="label">Gyro Z</span><div class="bar-wrap"><div class="bar" id="bar-igz"></div></div><span class="value" id="igz">—</span><span class="value unit">°/s</span></div>
+  </div>
+
+  <!-- ESF-ALG -->
+  <div class="panel" id="panel-orientation">
+    <h2>Orientation — ESF-ALG</h2>
+    <div style="font-size:10px;color:#555;margin-bottom:8px;">Installation alignment (sensor frame)</div>
+    <div class="row"><span class="label">Roll</span> <span class="value" id="alg-roll">—</span><span class="value unit">°</span></div>
+    <div class="row"><span class="label">Pitch</span><span class="value" id="alg-pitch">—</span><span class="value unit">°</span></div>
+    <div class="row"><span class="label">Yaw</span>  <span class="value" id="alg-yaw">—</span><span class="value unit">°</span></div>
+  </div>
+
+  <!-- Compass -->
+  <div class="panel" id="panel-compass">
+    <h2>Compass — THS Heading</h2>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding-top:4px;">
+      <div style="position:relative;width:160px;height:160px;">
+        <!-- Fixed forward marker (vehicle direction = up) -->
+        <svg style="position:absolute;top:0;left:0;pointer-events:none;" width="160" height="160">
+          <polygon points="80,4 74,16 86,16" fill="#4fc3f7"/>
+        </svg>
+        <!-- Rotating compass rose -->
+        <svg id="compass-svg" viewBox="0 0 160 160" width="160" height="160">
+          <circle cx="80" cy="80" r="74" fill="#0e1117" stroke="#2a2f3a" stroke-width="1.5"/>
+          <g id="compass-rose" style="transform-origin:80px 80px;transition:transform 0.35s ease;">
+            <!-- Degree ticks -->
+            <g stroke="#333" stroke-width="1">
+              <line x1="80" y1="8"  x2="80" y2="16"/>  <line x1="80" y1="144" x2="80" y2="152"/>
+              <line x1="8"  y1="80" x2="16" y2="80"/>  <line x1="144" y1="80" x2="152" y2="80"/>
+              <line x1="27" y1="27" x2="33" y2="33"/>  <line x1="127" y1="27" x2="133" y2="33"/>
+              <line x1="27" y1="133" x2="33" y2="127"/> <line x1="127" y1="133" x2="133" y2="127"/>
+            </g>
+            <!-- N needle -->
+            <line x1="80" y1="80" x2="80" y2="22" stroke="#ef5350" stroke-width="3" stroke-linecap="round"/>
+            <!-- S needle -->
+            <line x1="80" y1="80" x2="80" y2="138" stroke="#555" stroke-width="2" stroke-linecap="round"/>
+            <!-- Center dot -->
+            <circle cx="80" cy="80" r="4" fill="#2a2f3a" stroke="#555" stroke-width="1"/>
+            <!-- Cardinal labels -->
+            <text x="80" y="20" text-anchor="middle" dominant-baseline="middle" fill="#ef5350" font-size="13" font-weight="700" font-family="monospace">N</text>
+            <text x="80" y="148" text-anchor="middle" dominant-baseline="middle" fill="#666" font-size="11" font-family="monospace">S</text>
+            <text x="148" y="80" text-anchor="middle" dominant-baseline="middle" fill="#666" font-size="11" font-family="monospace">E</text>
+            <text x="12"  y="80" text-anchor="middle" dominant-baseline="middle" fill="#666" font-size="11" font-family="monospace">W</text>
+          </g>
+        </svg>
+      </div>
+      <div style="font-size:13px;color:#888;">HDG <span id="compass-hdg" style="color:#e0e0e0;font-weight:600;">—</span>°</div>
+    </div>
+  </div>
+
+  <!-- ESF-STATUS -->
+  <div class="panel" id="panel-esf-status">
+    <h2>ESF-STATUS — Fusion State</h2>
+    <div class="row"><span class="label">Fusion Mode</span><span class="value" id="fusion-mode"><span class="badge">—</span></span></div>
+    <div class="row"><span class="label">IMU Init</span><span class="value" id="imu-init-status"><span class="badge">—</span></span></div>
+    <div class="row"><span class="label">INS Init</span><span class="value" id="esf-init"><span class="badge">—</span></span></div>
+    <div style="margin: 8px 0; border-top: 1px solid #2a2f3a;"></div>
+    <div style="display:grid;grid-template-columns:100px 1fr;font-size:10px;color:#555;margin-bottom:4px;padding:0 2px;">
+      <span>Sensor</span><span>Calib Status</span>
+    </div>
+    <div id="esf-sensors">
+      <div class="sensor-block"><div style="display:grid;grid-template-columns:100px 1fr;align-items:center;font-size:11px;padding:3px 0;"><span style="color:#bbb;font-weight:600">Gyro X</span><span class="pill off">—</span></div></div>
+      <div class="sensor-block"><div style="display:grid;grid-template-columns:100px 1fr;align-items:center;font-size:11px;padding:3px 0;"><span style="color:#bbb;font-weight:600">Gyro Y</span><span class="pill off">—</span></div></div>
+      <div class="sensor-block"><div style="display:grid;grid-template-columns:100px 1fr;align-items:center;font-size:11px;padding:3px 0;"><span style="color:#bbb;font-weight:600">Gyro Z</span><span class="pill off">—</span></div></div>
+      <div class="sensor-block"><div style="display:grid;grid-template-columns:100px 1fr;align-items:center;font-size:11px;padding:3px 0;"><span style="color:#bbb;font-weight:600">Temperature</span><span class="pill off">—</span></div></div>
+      <div class="sensor-block"><div style="display:grid;grid-template-columns:100px 1fr;align-items:center;font-size:11px;padding:3px 0;"><span style="color:#bbb;font-weight:600">Accel X</span><span class="pill off">—</span></div></div>
+      <div class="sensor-block"><div style="display:grid;grid-template-columns:100px 1fr;align-items:center;font-size:11px;padding:3px 0;"><span style="color:#bbb;font-weight:600">Accel Y</span><span class="pill off">—</span></div></div>
+      <div class="sensor-block"><div style="display:grid;grid-template-columns:100px 1fr;align-items:center;font-size:11px;padding:3px 0;"><span style="color:#bbb;font-weight:600">Accel Z</span><span class="pill off">—</span></div></div>
+    </div>
+  </div>
+
+  <!-- Position -->
+  <div class="panel" id="panel-position">
+    <h2>Position (GGA / RMC)</h2>
+    <div class="row"><span class="label">Latitude</span> <span class="value" id="lat">—</span><span class="value unit">°</span></div>
+    <div class="row"><span class="label">Longitude</span><span class="value" id="lon">—</span><span class="value unit">°</span></div>
+    <div class="row"><span class="label">Altitude</span> <span class="value" id="alt">—</span><span class="value unit">m</span></div>
+    <div class="row"><span class="label">Speed</span>    <span class="value" id="spd">—</span><span class="value unit">km/h</span></div>
+    <div class="row"><span class="label">Satellites</span><span class="value" id="numSV">—</span></div>
+    <div class="row"><span class="label">HDOP</span>    <span class="value" id="hdop">—</span></div>
+    <div class="row"><span class="label">UTC Time</span><span class="value" id="utc">—</span></div>
+  </div>
+
+  <!-- DOP -->
+  <div class="panel" id="panel-dop">
+    <h2>DOP (GSA)</h2>
+    <div class="row"><span class="label">HDOP</span><span class="value" id="gsa-hdop">—</span></div>
+    <div class="row"><span class="label">VDOP</span><span class="value" id="gsa-vdop">—</span></div>
+    <div class="row"><span class="label">PDOP</span><span class="value" id="gsa-pdop">—</span></div>
+  </div>
+
+  <!-- NAV-PVT -->
+  <div class="panel" id="panel-nav-pvt">
+    <h2>NAV-PVT — Velocity &amp; Fix Quality</h2>
+    <div class="row"><span class="label">Fix Type</span><span class="value" id="pvt-fix"><span class="badge">—</span></span></div>
+    <div class="row"><span class="label">Satellites</span><span class="value" id="pvt-numsv">—</span></div>
+    <div class="row"><span class="label">Speed</span><span class="value" id="pvt-speed">—</span><span class="value unit">km/h</span></div>
+    <div style="margin:8px 0;border-top:1px solid #2a2f3a;"></div>
+    <div class="row"><span class="label">Vel North</span><span class="value" id="pvt-velN">—</span><span class="value unit">m/s</span></div>
+    <div class="row"><span class="label">Vel East</span> <span class="value" id="pvt-velE">—</span><span class="value unit">m/s</span></div>
+    <div class="row"><span class="label">Vel Down</span> <span class="value" id="pvt-velD">—</span><span class="value unit">m/s</span></div>
+    <div style="margin:8px 0;border-top:1px solid #2a2f3a;"></div>
+    <div class="row"><span class="label">H Accuracy</span> <span class="value" id="pvt-hacc">—</span><span class="value unit">m</span></div>
+    <div class="row"><span class="label">V Accuracy</span> <span class="value" id="pvt-vacc">—</span><span class="value unit">m</span></div>
+    <div class="row"><span class="label">Head Motion</span><span class="value" id="pvt-headmot">—</span><span class="value unit">°</span></div>
+    <div class="row"><span class="label">Head Vehicle</span><span class="value" id="pvt-headveh">—</span><span class="value unit">°</span></div>
+  </div>
+
+  <!-- NAV-ATT -->
+  <div class="panel" id="panel-nav-att">
+    <h2>NAV-ATT — Navigation Attitude</h2>
+    <div style="font-size:10px;color:#555;margin-bottom:8px;">Navigation frame, post-filter</div>
+    <div class="row"><span class="label">Roll</span>   <span class="value" id="att-roll">—</span> <span class="value unit">°</span></div>
+    <div class="row"><span class="label">Pitch</span>  <span class="value" id="att-pitch">—</span><span class="value unit">°</span></div>
+    <div class="row"><span class="label">Heading</span><span class="value" id="att-hdg">—</span>  <span class="value unit">°</span></div>
+  </div>
+
+  <!-- Data Log Preview -->
+  <div class="panel" id="log-panel">
+    <h2>Data Log Preview — <span style="font-weight:400;color:#555;text-transform:none;">EVK-M9DR-log.txt</span></h2>
+    <div id="log-entries"></div>
+  </div>
+
+  <!-- System Events -->
+  <div class="panel" style="grid-column:1/-1;">
+    <h2>System Events</h2>
+    <div id="event-entries" style="height:120px;overflow-y:auto;font-size:11px;font-family:'JetBrains Mono','Fira Code',monospace;"></div>
+  </div>
+
+</div>
+
+<script>
+  const WS_URL = 'ws://localhost:5052';
+  const statusEl = document.getElementById('status');
+
+  const ACCEL_MAX = 15;
+  const GYRO_MAX  = 200;
+
+  function setVal(id, val, decimals = 4) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = typeof val === 'number' ? val.toFixed(decimals) : val;
+    el.classList.toggle('positive', typeof val === 'number' && val > 0);
+    el.classList.toggle('negative', typeof val === 'number' && val < 0);
+  }
+
+  function setBar(id, val, max) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const pct = Math.min(Math.abs(val) / max * 100, 100);
+    el.style.width = pct + '%';
+    el.style.background = val < 0 ? '#ef9a9a' : '#4fc3f7';
+  }
+
+  function setAxes(prefix, accel, gyro) {
+    ['x','y','z'].forEach(axis => {
+      setVal(prefix + 'a' + axis, accel[axis]);
+      setBar('bar-' + prefix + 'a' + axis, accel[axis], ACCEL_MAX);
+      setVal(prefix + 'g' + axis, gyro[axis]);
+      setBar('bar-' + prefix + 'g' + axis, gyro[axis], GYRO_MAX);
+    });
+  }
+
+  const FIX_LABELS  = {0:'No fix',1:'DR only',2:'2D',3:'3D',4:'GNSS+DR',5:'Time only'};
+  const FIX_CLASSES = {0:'',1:'mode-2',2:'mode-1',3:'mode-0',4:'mode-0',5:'mode-1'};
+
+  const FUSION_LABELS = {
+    0: ['mode-1', 'Initializing'],
+    1: ['mode-0', 'Fusion'],
+    2: ['mode-2', 'Suspended'],
+    3: ['',       'Disabled'],
+  };
+
+  const SENSOR_TYPE_NAMES = {
+    5:  'Gyro Z', 13: 'Gyro Y', 14: 'Gyro X',
+    16: 'Accel X', 17: 'Accel Y', 18: 'Accel Z',
+  };
+
+  const IMU_INIT_LABELS = {
+    0: ['', 'Not Init'],
+    1: ['mode-1', 'Initializing'],
+    2: ['mode-0', 'Initialized'],
+    3: ['mode-0', 'Initialized'],
+  };
+
+  const MNT_ALG_LABELS = {
+    0: ['off',  'Initializing'],
+    1: ['warn', 'Initializing'],
+    2: ['ok',   'COARSE'],
+  };
+
+  const RPY_LABELS = {
+    0: "Fixed",
+    1: "ROLL, PITCH ALIGNING",
+    2: "ROLL, PITCH, YAW ALIGNING",
+    3: "ALL ALIGNED"
+  }
+
+  const CALIB_LABELS  = ['NOT CALIBRATED', 'CALIBRATING', 'CALIBRATED', 'CALIBRATED'];
+  const TIME_LABELS   = ['No time', 'First meas', 'Ext time', 'Int time'];
+  const INIT_BITS = [
+    'Wheel tick init', 'Coarse vel init', 'Fine vel init',
+    'Coarse tilt init', 'Fine tilt init', 'Coarse heading init', 'Fine heading init',
+  ];
+
+  function connect() {
+    const ws = new WebSocket(WS_URL);
+
+    ws.onopen = () => {
+      statusEl.className = 'connected';
+      statusEl.innerHTML = '<span></span>Connected to EVK-M9DR';
+    };
+
+    ws.onclose = () => {
+      statusEl.className = '';
+      statusEl.innerHTML = '<span></span>Disconnected — retrying...';
+      setTimeout(connect, 2000);
+    };
+
+    ws.onmessage = ({ data }) => {
+      const msg = JSON.parse(data);
+
+      if (msg.type === 'ESF-MEAS') {
+        setAxes('', msg.accel, msg.gyro);
+      }
+
+      else if (msg.type === 'ESF-INS') {
+        setAxes('i', msg.accel, msg.gyro);
+      }
+
+      else if (msg.type === 'ESF-ALG') {
+        setVal('alg-roll',  msg.roll,  2);
+        setVal('alg-pitch', msg.pitch, 2);
+        setVal('alg-yaw',   msg.yaw,   2);
+        setVal('mounting-status', RPY_LABELS[msg.status])
+      }
+
+      else if (msg.type === 'ESF-STATUS') {
+        const [fmCls, fmLabel] = FUSION_LABELS[msg.fusionMode] || ['', `Mode ${msg.fusionMode}`];
+        document.getElementById('fusion-mode').innerHTML =
+          `<span class="badge ${fmCls}">${fmLabel}</span>`;
+
+        const [imuCls, imuLabel] = IMU_INIT_LABELS[msg.imuInitStatus] || ['', `${msg.imuInitStatus}`];
+        document.getElementById('imu-init-status').innerHTML =
+          `<span class="badge ${imuCls}">${imuLabel}</span>`;
+
+        const [insCls, insLabel] = IMU_INIT_LABELS[msg.insInitStatus] || ['', `${msg.insInitStatus}`];
+        document.getElementById('esf-init').innerHTML =
+          `<span class="badge ${insCls}">${insLabel}</span>`;
+
+        if (msg.sensors && msg.sensors.length) {
+          let html = '';
+          for (const s of msg.sensors) {
+            if (s.type === 10) continue;
+            const name  = SENSOR_TYPE_NAMES[s.type] || `Type ${s.type}`;
+            const calib = CALIB_LABELS[s.calibStatus] ?? s.calibStatus;
+            const pillCls = s.calibStatus >= 2 ? 'ok' : s.calibStatus === 1 ? 'warn' : 'off';
+            html += `<div class="sensor-block">
+              <div style="display:grid;grid-template-columns:100px 1fr;align-items:center;font-size:11px;padding:3px 0;">
+                <span style="color:#bbb;font-weight:600">${name}</span>
+                <span class="pill ${pillCls}">${calib}</span>
+              </div>
+            </div>`;
+          }
+          document.getElementById('esf-sensors').innerHTML = html;
+        }
+      }
+
+      else if (msg.type === 'GGA') {
+        setVal('lat',   msg.lat,  6);
+        setVal('lon',   msg.lon,  6);
+        setVal('alt',   msg.alt,  1);
+        setVal('numSV', msg.numSV, 0);
+        setVal('hdop',  msg.hdop,  2);
+        document.getElementById('utc').textContent = msg.time;
+        document.getElementById('utc-top').textContent = msg.time;
+      }
+
+      else if (msg.type === 'RMC') {
+        if (msg.time) {
+          document.getElementById('utc-top').textContent = msg.time;
+          document.getElementById('utc').textContent = msg.time;
+        }
+      }
+
+      else if (msg.type === 'GSA') {
+        setVal('gsa-hdop', msg.hdop, 2);
+        setVal('gsa-vdop', msg.vdop, 2);
+        setVal('gsa-pdop', msg.pdop, 2);
+      }
+
+      else if (msg.type === 'ZDA') {
+        const zdaStr = `${msg.time}  ${msg.day}/${msg.month}/${msg.year}`;
+        document.getElementById('utc').textContent = zdaStr;
+        document.getElementById('utc-top').textContent = zdaStr;
+      }
+
+      else if (msg.type === 'NAV-PVT') {
+        const fixLabel = FIX_LABELS[msg.fixType] ?? `Fix ${msg.fixType}`;
+        const fixCls   = FIX_CLASSES[msg.fixType] ?? '';
+        document.getElementById('pvt-fix').innerHTML = `<span class="badge ${fixCls}">${fixLabel}</span>`;
+        setVal('pvt-numsv',   msg.numSV,        0);
+        setVal('pvt-speed',   msg.speed * 3.6,  2);   // m/s → km/h
+        setVal('pvt-velN',    msg.velN,          3);
+        setVal('pvt-velE',    msg.velE,          3);
+        setVal('pvt-velD',    msg.velD,          3);
+        setVal('pvt-hacc',    msg.hAcc,          2);
+        setVal('pvt-vacc',    msg.vAcc,          2);
+        setVal('pvt-headmot', msg.headMot,       2);
+        setVal('pvt-headveh', msg.headVeh,       2);
+        if (msg.fixType >= 2 && msg.lat && msg.lon) {
+          setVal('lat', msg.lat, 6);
+          setVal('lon', msg.lon, 6);
+        }
+        setVal('spd', msg.speed * 3.6, 2);
+      }
+
+      else if (msg.type === 'NAV-ATT') {
+        setVal('att-roll',  msg.roll,    2);
+        setVal('att-pitch', msg.pitch,   2);
+        setVal('att-hdg',   msg.heading, 2);
+      }
+
+      else if (msg.type === 'THS') {
+        document.getElementById('compass-rose').style.transform = `rotate(${-msg.heading}deg)`;
+        document.getElementById('compass-hdg').textContent = msg.heading.toFixed(1);
+      }
+
+      else if (msg.type === 'NAV-STATUS') {
+        const fixLabel = FIX_LABELS[msg.gpsFix] ?? `Fix ${msg.gpsFix}`;
+        const fixCls   = FIX_CLASSES[msg.gpsFix] ?? '';
+        document.getElementById('pvt-fix').innerHTML = `<span class="badge ${fixCls}">${fixLabel}</span>`;
+      }
+
+      else if (msg.type === 'DATA_LOG') {
+        const el = document.getElementById('log-entries');
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.innerHTML = `<span style="color:#aaa;font-size:10px;">${msg.line}</span>`;
+        el.appendChild(entry);
+        if (el.children.length > 50) el.removeChild(el.firstChild);
+        el.scrollTop = el.scrollHeight;
+      }
+
+      else if (msg.type === 'LOG') {
+        const el = document.getElementById('event-entries');
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.innerHTML = `<span class="log-ts">${msg.ts}</span><span class="log-${msg.level}">${msg.msg}</span>`;
+        el.appendChild(entry);
+        if (el.children.length > 100) el.removeChild(el.firstChild);
+        el.scrollTop = el.scrollHeight;
+      }
+    };
+  }
+
+  connect();
+</script>
+</body>
+</html>

@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NovAtel PwrPak7 Live Dashboard</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:    #0d1117; --surf: #161b22; --border: #30363d;
+    --accent:#58a6ff; --green:#3fb950; --yellow:#d29922; --red:#f85149;
+    --text:  #e6edf3; --muted:#8b949e;
+    --ax:#ff6b6b; --ay:#51cf66; --az:#339af0;
+    --gx:#fcc419; --gy:#cc5de8; --gz:#20c997;
+    --la:#ff9f43; --lo:#54a0ff; --ve:#5f27cd;   /* veh-frame acc */
+    --pr:#ff6348; --rr:#2ed573; --yr:#eccc68;    /* veh-frame rates */
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    background:var(--bg); color:var(--text);
+    font-family:'Segoe UI',system-ui,sans-serif; font-size:12px;
+    height:100vh; display:flex; flex-direction:column; overflow:hidden;
+  }
+
+  /* Header */
+  header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:5px 14px; background:var(--surf); border-bottom:1px solid var(--border);
+    flex-shrink:0;
+  }
+  header h1 { font-size:13px; font-weight:600; color:var(--accent); }
+  .hdr-r { display:flex; gap:12px; align-items:center; }
+  #conn-badge {
+    padding:2px 9px; border-radius:10px; font-size:10px; font-weight:700;
+    background:#3c1e1e; color:var(--red); border:1px solid var(--red);
+  }
+  #conn-badge.ok { background:#1a3024; color:var(--green); border-color:var(--green); }
+  .dim { color:var(--muted); font-size:10px; font-variant-numeric:tabular-nums; }
+
+  /* Main grid:  col1=GNSS | col2=center | col3=right
+     rows: [top panels] [raw imu charts] [veh frame charts] */
+  main {
+    flex:1; display:grid; overflow:hidden; min-height:0;
+    grid-template-columns: 265px 1fr 1fr;
+    grid-template-rows: 1fr 155px 155px;
+    gap:5px; padding:5px;
+  }
+
+  /* Cards */
+  .card {
+    background:var(--surf); border:1px solid var(--border); border-radius:7px;
+    padding:7px 10px; overflow:hidden; min-height:0; display:flex; flex-direction:column;
+  }
+  .ct {
+    font-size:9px; font-weight:700; letter-spacing:.9px; text-transform:uppercase;
+    color:var(--muted); padding-bottom:3px; margin-bottom:4px;
+    border-bottom:1px solid var(--border); flex-shrink:0;
+  }
+  .ct.sep { margin-top:6px; }
+
+  /* GNSS card — full height left column */
+  #gnss-card { grid-column:1; grid-row:1/4; overflow-y:auto; }
+  .dg  { display:grid; grid-template-columns:1fr 1fr; gap:3px 10px; }
+  .di label { display:block; font-size:9px; color:var(--muted); margin-bottom:1px; }
+  .di .v { font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .di .v.big { font-size:16px; }
+  .di .v.sm  { font-size:11px; }
+  .u  { font-size:9px; color:var(--muted); margin-left:1px; }
+  .full { grid-column:1/3; }
+  .badge {
+    display:inline-block; padding:2px 7px; border-radius:5px; font-size:10px; font-weight:700;
+    background:#3c1e1e; color:var(--red); border:1px solid var(--red); margin-top:2px;
+    transition:all .3s; white-space:nowrap;
+  }
+  .badge.good { background:#1a3024; color:var(--green); border-color:var(--green); }
+  .badge.warn { background:#3c2e0a; color:var(--yellow); border-color:var(--yellow); }
+  .svs-r { display:flex; gap:8px; margin-top:3px; }
+  .svs-r span { font-size:10px; color:var(--muted); }
+  .svs-r strong { color:var(--text); }
+
+  /* Attitude card */
+  #att-card { grid-column:2; grid-row:1; }
+  .att-wrap { display:flex; gap:9px; flex:1; min-height:0; overflow:hidden; }
+  .att-fields { flex:1; display:flex; flex-direction:column; gap:4px; }
+  .att-row { display:grid; grid-template-columns:58px 1fr 66px; align-items:center; gap:3px; }
+  .att-row label { font-size:9px; color:var(--muted); }
+  .bw { height:5px; background:var(--border); border-radius:3px; position:relative; overflow:visible; }
+  .b  { position:absolute; height:100%; border-radius:3px; left:50%; background:var(--accent); }
+  .av { font-size:13px; font-weight:700; text-align:right; font-variant-numeric:tabular-nums; }
+  .sv { font-size:10px; text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .compass-pair { display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
+  .compass-item { display:flex; flex-direction:column; align-items:center; gap:2px; }
+  .compass-lbl { font-size:8px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; color:var(--muted); }
+
+  /* IMU + Cal card */
+  #imu-card { grid-column:3; grid-row:1; overflow-y:auto; }
+  .meta-r { display:flex; gap:10px; flex-wrap:wrap; }
+  .kv label { font-size:9px; color:var(--muted); display:block; }
+  .kv span  { font-size:12px; font-weight:700; }
+
+  .flags { display:grid; grid-template-columns:1fr 1fr; gap:2px 8px; margin-top:3px; }
+  .flag  { display:flex; align-items:center; gap:4px; font-size:10px; color:var(--muted); }
+  .dot   { width:7px; height:7px; border-radius:50%; background:var(--border); flex-shrink:0; transition:background .3s; }
+  .dot.on   { background:var(--green);  box-shadow:0 0 4px var(--green); }
+  .dot.warn { background:var(--yellow); box-shadow:0 0 4px var(--yellow); }
+
+  /* Chart panels */
+  #raw-accel-card  { grid-column:2; grid-row:2; }
+  #raw-gyro-card   { grid-column:3; grid-row:2; }
+  #veh-acc-card    { grid-column:2; grid-row:3; }
+  #veh-rate-card   { grid-column:3; grid-row:3; }
+  .chart-wrap { flex:1; position:relative; min-height:0; }
+
+  /* Footer */
+  footer {
+    padding:2px 12px; background:var(--surf); border-top:1px solid var(--border);
+    color:var(--muted); font-size:10px; display:flex; gap:14px; flex-shrink:0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>NovAtel PwrPak7 · Live Dashboard</h1>
+  <div class="hdr-r">
+    <span class="dim" id="gps-time">GPS —</span>
+    <span class="dim" id="clock">—</span>
+    <span id="conn-badge">● NO SERIAL</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- ══ GNSS (left, full height) ═════════════════════════════ -->
+  <div class="card" id="gnss-card">
+    <div class="ct">GNSS Position <span style="color:var(--muted);font-weight:400">(BESTPOSA·ASCII)</span></div>
+    <div class="dg">
+      <div class="di full">
+        <label>Solution</label>
+        <span class="badge" id="gnss-badge">WAITING</span>&nbsp;<span class="badge" id="pos-type-badge" style="font-size:9px">—</span>
+      </div>
+      <div class="di full"><label>Latitude</label><div class="v big" id="lat">—</div></div>
+      <div class="di full"><label>Longitude</label><div class="v big" id="lon">—</div></div>
+      <div class="di"><label>Height (ellip.)</label><div class="v" id="height">—<span class="u">m</span></div></div>
+      <div class="di"><label>Undulation</label><div class="v" id="undulation">—<span class="u">m</span></div></div>
+    </div>
+    <div class="svs-r">
+      <span>SVs: <strong id="num-svs">—</strong></span>
+      <span>Used: <strong id="num-used">—</strong></span>
+      <span>Age: <strong id="diff-age">—</strong><span class="u">s</span></span>
+    </div>
+    <div class="svs-r" style="margin-top:3px">
+      <span>HDOP: <strong id="hdop">—</strong></span>
+      <span>PDOP: <strong id="pdop">—</strong></span>
+      <span>VDOP: <strong id="vdop">—</strong></span>
+    </div>
+
+    <div class="ct sep">Accuracy (1σ)</div>
+    <div class="dg">
+      <div class="di"><label>Lat σ</label><div class="v sm" id="lat-sig">—<span class="u">m</span></div></div>
+      <div class="di"><label>Lon σ</label><div class="v sm" id="lon-sig">—<span class="u">m</span></div></div>
+      <div class="di"><label>Height σ</label><div class="v sm" id="height-sig">—<span class="u">m</span></div></div>
+    </div>
+
+    <div class="ct sep">INS Velocity <span style="color:var(--muted);font-weight:400">(INSPVAXA)</span></div>
+    <div class="dg">
+      <div class="di"><label>North</label><div class="v sm" id="vel-n">—<span class="u">km/h</span></div></div>
+      <div class="di"><label>East</label><div class="v sm" id="vel-e">—<span class="u">km/h</span></div></div>
+      <div class="di"><label>Up</label><div class="v sm" id="vel-u">—<span class="u">km/h</span></div></div>
+      <div class="di"><label>2D Speed</label><div class="v sm" id="speed">—<span class="u">km/h</span></div></div>
+    </div>
+
+    <div class="ct sep">INS Status</div>
+    <div class="di full" style="margin-bottom:3px">
+      <span class="badge" id="ins-badge">INS_INACTIVE</span>
+    </div>
+    <div class="dg">
+      <div class="di"><label>Vel N σ</label><div class="v sm" id="vn-sig">—<span class="u">km/h</span></div></div>
+      <div class="di"><label>Vel E σ</label><div class="v sm" id="ve-sig">—<span class="u">km/h</span></div></div>
+    </div>
+  </div>
+
+  <!-- ══ INS Attitude (top-centre) ════════════════════════════ -->
+  <div class="card" id="att-card">
+    <div class="ct">INS Attitude <span style="color:var(--muted);font-weight:400">(INSPVAXA · 1 Hz)</span></div>
+    <div class="att-wrap">
+      <div class="compass-pair">
+        <div class="compass-item">
+          <canvas id="compass-cog" width="88" height="88" style="width:88px;height:88px"></canvas>
+          <span class="compass-lbl" style="color:var(--yellow)">COG</span>
+        </div>
+        <div class="compass-item">
+          <canvas id="compass-az" width="88" height="88" style="width:88px;height:88px"></canvas>
+          <span class="compass-lbl" style="color:var(--accent)">Azimuth</span>
+        </div>
+      </div>
+      <div class="att-fields">
+        <div class="att-row">
+          <label>Roll</label>
+          <div class="bw"><div class="b" id="roll-bar" style="width:0;background:var(--ax)"></div></div>
+          <div class="av" id="roll-v" style="color:var(--ax)">—°</div>
+        </div>
+        <div class="att-row">
+          <label>Pitch</label>
+          <div class="bw"><div class="b" id="pitch-bar" style="width:0;background:var(--ay)"></div></div>
+          <div class="av" id="pitch-v" style="color:var(--ay)">—°</div>
+        </div>
+        <div class="att-row">
+          <label>Azimuth</label>
+          <div class="bw"><div class="b" id="az-bar" style="width:0;background:var(--accent)"></div></div>
+          <div class="av" id="az-v" style="color:var(--accent)">—°</div>
+        </div>
+        <div class="att-row">
+          <label>COG</label>
+          <div class="bw"><div class="b" id="cog-bar" style="width:0;background:var(--yellow)"></div></div>
+          <div class="av" id="cog-v" style="color:var(--yellow)">—°</div>
+        </div>
+        <div style="height:3px"></div>
+        <div class="att-row"><label>Roll σ</label><div></div><div class="sv" id="roll-sig">—°</div></div>
+        <div class="att-row"><label>Pitch σ</label><div></div><div class="sv" id="pitch-sig">—°</div></div>
+        <div class="att-row"><label>Azimuth σ</label><div></div><div class="sv" id="az-sig">—°</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ IMU + Calibration + Install Angles (top-right) ═══════ -->
+  <div class="card" id="imu-card">
+    <div class="ct">IMU</div>
+    <div class="meta-r">
+      <div class="kv"><label>Type</label><span id="imu-type">—</span></div>
+      <div class="kv"><label>Status</label><span id="imu-hex" style="font-size:10px;color:var(--muted)">—</span></div>
+      <div class="kv"><label>Raw rate</label><span id="imu-rate">— Hz</span></div>
+      <div class="kv"><label>Corr rate</label><span id="corr-rate">— Hz</span></div>
+    </div>
+
+    <!-- RF Spectrum analysis from ITDETECTSTATUSA -->
+    <div class="ct sep">RF Spectrum <span style="color:var(--muted);font-size:8px;font-weight:400;letter-spacing:0">(ITDETECTSTATUSA · 1 Hz)</span></div>
+    <div class="dg">
+      <div class="di"><label>Analysis</label><div class="v sm" id="cal-type">—</div></div>
+      <div class="di"><label>Band</label><div class="v sm" id="cal-band">—</div></div>
+      <div class="di"><label>Center Freq</label><div class="v sm" id="cal-freq">—<span class="u">Hz</span></div></div>
+      <div class="di"><label>Bandwidth</label><div class="v sm" id="cal-bw">—<span class="u">Hz</span></div></div>
+      <div class="di"><label>Power</label><div class="v sm" id="cal-pwr">—<span class="u">dBm</span></div></div>
+      <div class="di"><label>Noise</label><div class="v sm" id="cal-noise">—<span class="u">dBm</span></div></div>
+    </div>
+
+    <!-- Installation configuration from INSCONFIGSA -->
+    <div class="ct sep">Installation Config <span style="color:var(--muted);font-size:8px;font-weight:400;letter-spacing:0">(INSCONFIGSA)</span></div>
+    <div class="dg">
+      <div class="di full">
+        <label>Profile / Align Mode</label>
+        <div class="v sm"><span id="cfg-profile">—</span> &nbsp;/&nbsp; <span id="cfg-align">—</span></div>
+      </div>
+      <div class="di full"><label>Lever Arm ANT1 — X(fwd) Y(lat) Z(up) <span class="u">m</span></label>
+        <div class="v sm" style="font-variant-numeric:tabular-nums">
+          <span id="cfg-ax" style="color:var(--accent)">—</span>&nbsp;
+          <span id="cfg-ay" style="color:var(--ay)">—</span>&nbsp;
+          <span id="cfg-az" style="color:var(--az)">—</span>
+        </div>
+      </div>
+      <div class="di full"><label>Body Rotation RBV — X(roll) Y(pitch) Z(yaw) <span class="u">°</span></label>
+        <div class="v sm" style="font-variant-numeric:tabular-nums">
+          <span id="cfg-rx" style="color:var(--ax)">—</span>&nbsp;
+          <span id="cfg-ry" style="color:var(--ay)">—</span>&nbsp;
+          <span id="cfg-rz" style="color:var(--accent)">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- INS ext status flags -->
+    <div class="ct sep">INS Extended Flags</div>
+    <div class="flags">
+      <div class="flag"><div class="dot" id="f-ins"></div>INS Enabled</div>
+      <div class="flag"><div class="dot" id="f-pos"></div>Pos Update</div>
+      <div class="flag"><div class="dot" id="f-vel"></div>Vel Update</div>
+      <div class="flag"><div class="dot" id="f-att"></div>Att Update</div>
+      <div class="flag"><div class="dot" id="f-zupt"></div>Zero Vel</div>
+      <div class="flag"><div class="dot" id="f-hdg"></div>Hdg Update</div>
+      <div class="flag"><div class="dot" id="f-haln"></div>Hdg Align</div>
+    </div>
+  </div>
+
+  <!-- ══ Raw Accel chart (row 2, centre) ══════════════════════ -->
+  <div class="card" id="raw-accel-card">
+    <div class="ct">Raw Accel — Sensor Frame m/s² (100 Hz)</div>
+    <div class="chart-wrap"><canvas id="accel-chart"></canvas></div>
+  </div>
+
+  <!-- ══ Raw Gyro chart (row 2, right) ════════════════════════ -->
+  <div class="card" id="raw-gyro-card">
+    <div class="ct">Raw Gyro — Sensor Frame deg/s (100 Hz)</div>
+    <div class="chart-wrap"><canvas id="gyro-chart"></canvas></div>
+  </div>
+
+  <!-- ══ Vehicle Frame Acceleration (row 3, centre) ═══════════ -->
+  <div class="card" id="veh-acc-card">
+    <div class="ct">Vehicle Frame Acceleration — m/s² (CORRIMUDATAA · 100 Hz)</div>
+    <div class="chart-wrap"><canvas id="vacc-chart"></canvas></div>
+  </div>
+
+  <!-- ══ Vehicle Frame Angular Rate (row 3, right) ════════════ -->
+  <div class="card" id="veh-rate-card">
+    <div class="ct">Vehicle Frame Angular Rate — deg/s (CORRIMUDATAA · 100 Hz)</div>
+    <div class="chart-wrap"><canvas id="vrate-chart"></canvas></div>
+  </div>
+
+</main>
+
+<footer>
+  <span>NovAtel PwrPak7 / SPAN OEM7</span>
+  <span id="ft-gps">GPS —</span>
+  <span id="ft-imu">IMU: 0</span>
+  <span id="ft-corr">CORR: 0</span>
+  <span id="ft-ins">INS: 0</span>
+  <span id="ft-gnss">GNSS: 0</span>
+  <span id="ft-cal">CAL: —</span>
+</footer>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────
+const WIN = 200;   // 2 s @ 100 Hz
+
+Chart.defaults.color       = '#8b949e';
+Chart.defaults.borderColor = '#30363d';
+
+// ── Buffers ───────────────────────────────────────────────────────────────
+function makeBuf(n) {
+  const arr = new Array(n).fill(0);
+  return { arr, push(v) { arr.shift(); arr.push(v); } };
+}
+
+const aX = makeBuf(WIN), aY = makeBuf(WIN), aZ = makeBuf(WIN);  // raw accel
+const gX = makeBuf(WIN), gY = makeBuf(WIN), gZ = makeBuf(WIN);  // raw gyro
+const vLa = makeBuf(WIN), vLo = makeBuf(WIN), vVe = makeBuf(WIN); // veh acc
+const vPr = makeBuf(WIN), vRr = makeBuf(WIN), vYr = makeBuf(WIN); // veh rate
+
+// ── IMU scale factors (LSB → physical units) ──────────────────────────────
+// Type 61 = Epson G370N  (NovAtel OEM7 documentation)
+//   Accel: (0.400 mg/LSB) × (9.80665 m/s²/g) / 1000  → m/s²/LSB
+//   Gyro:  (0.0151515 °/s / 2^16)                     → °/s/LSB
+const IMU_SCALES = {
+  61: { accel: (0.400 / 65536) * (9.80665 / 1000), gyro: 0.0151515 / 65536 },
+};
+const DEFAULT_SCALE = IMU_SCALES[61];
+
+// ── Chart factory ─────────────────────────────────────────────────────────
+function mkChart(id, datasets) {
+  return new Chart(document.getElementById(id), {
+    type: 'line',
+    data: {
+      labels: new Array(WIN).fill(''),
+      datasets: datasets.map(d => ({
+        label: d.label, data: new Array(WIN).fill(0),
+        borderColor: d.color, borderWidth: 1,
+        pointRadius: 0, tension: 0, fill: false,
+      })),
+    },
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: 8, font: { size: 9 }, padding: 4 } },
+        tooltip: { enabled: false },
+      },
+      scales: {
+        x: { display: false },
+        y: { ticks: { font: { size: 9 }, maxTicksLimit: 4 }, grid: { color: '#1f2937' } },
+      },
+    },
+  });
+}
+
+const accelChart = mkChart('accel-chart', [
+  { label:'X', color:'#ff6b6b' }, { label:'Y', color:'#51cf66' }, { label:'Z', color:'#339af0' },
+]);
+const gyroChart = mkChart('gyro-chart', [
+  { label:'X', color:'#fcc419' }, { label:'Y', color:'#cc5de8' }, { label:'Z', color:'#20c997' },
+]);
+const vaccChart = mkChart('vacc-chart', [
+  { label:'X Fwd/Back', color:'#54a0ff' }, { label:'Y Lateral', color:'#ff9f43' }, { label:'Z Vert', color:'#5f27cd' },
+]);
+const vrateChart = mkChart('vrate-chart', [
+  { label:'Pitch', color:'#ff6348' }, { label:'Roll', color:'#2ed573' }, { label:'Yaw', color:'#eccc68' },
+]);
+
+// ── Render loop (60 fps, decoupled from socket) ───────────────────────────
+let dirty = false;
+function renderLoop() {
+  if (dirty) {
+    accelChart.data.datasets[0].data = aX.arr.slice();
+    accelChart.data.datasets[1].data = aY.arr.slice();
+    accelChart.data.datasets[2].data = aZ.arr.slice();
+    accelChart.update('none');
+
+    gyroChart.data.datasets[0].data = gX.arr.slice();
+    gyroChart.data.datasets[1].data = gY.arr.slice();
+    gyroChart.data.datasets[2].data = gZ.arr.slice();
+    gyroChart.update('none');
+
+    vaccChart.data.datasets[0].data = vLa.arr.slice();
+    vaccChart.data.datasets[1].data = vLo.arr.slice();
+    vaccChart.data.datasets[2].data = vVe.arr.slice();
+    vaccChart.update('none');
+
+    vrateChart.data.datasets[0].data = vPr.arr.slice();
+    vrateChart.data.datasets[1].data = vRr.arr.slice();
+    vrateChart.data.datasets[2].data = vYr.arr.slice();
+    vrateChart.update('none');
+
+    dirty = false;
+  }
+  requestAnimationFrame(renderLoop);
+}
+requestAnimationFrame(renderLoop);
+
+// ── Compass factory ───────────────────────────────────────────────────────
+function makeCompass(canvasId, needleColor) {
+  const cv  = document.getElementById(canvasId);
+  const ctx = cv.getContext('2d');
+  let cur = 0, tgt = 0, raf = null;
+
+  function draw(az) {
+    const w=cv.width, h=cv.height, cx=w/2, cy=h/2, r=w/2-3;
+    ctx.clearRect(0,0,w,h);
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,2*Math.PI); ctx.fillStyle='#1a2030'; ctx.fill();
+    ctx.strokeStyle='#30363d'; ctx.lineWidth=1.5; ctx.stroke();
+    for(let i=0;i<36;i++){
+      const a=(i*10-90)*Math.PI/180, m=i%9===0;
+      ctx.beginPath();
+      ctx.moveTo(cx+Math.cos(a)*(r-(m?10:4)), cy+Math.sin(a)*(r-(m?10:4)));
+      ctx.lineTo(cx+Math.cos(a)*r, cy+Math.sin(a)*r);
+      ctx.strokeStyle=m?'#58a6ff':'#30363d'; ctx.lineWidth=m?1.5:.7; ctx.stroke();
+    }
+    [['N',0],['E',90],['S',180],['W',270]].forEach(([l,d])=>{
+      const a=(d-90)*Math.PI/180;
+      ctx.font='bold 7px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillStyle=l==='N'?'#f85149':'#8b949e';
+      ctx.fillText(l, cx+Math.cos(a)*(r-16), cy+Math.sin(a)*(r-16));
+    });
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate((az-90)*Math.PI/180+Math.PI/2);
+    ctx.beginPath(); ctx.moveTo(0,-(r-20)); ctx.lineTo(-4,7); ctx.lineTo(4,7);
+    ctx.closePath(); ctx.fillStyle=needleColor; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(0,r-20); ctx.lineTo(-4,-7); ctx.lineTo(4,-7);
+    ctx.closePath(); ctx.fillStyle='#444d56'; ctx.fill();
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(cx,cy,3,0,2*Math.PI); ctx.fillStyle='#e6edf3'; ctx.fill();
+    ctx.font='bold 8px monospace'; ctx.fillStyle=needleColor;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(az.toFixed(1)+'°', cx, cy+r-9);
+  }
+
+  function step() {
+    const delta = ((tgt - cur + 540) % 360) - 180;
+    if (Math.abs(delta) < 0.1) { cur = tgt; raf = null; return; }
+    cur += delta * 0.12;
+    cur = ((cur % 360) + 360) % 360;
+    draw(cur);
+    raf = requestAnimationFrame(step);
+  }
+
+  draw(0);
+  return {
+    set(az) { tgt = az; if (!raf) raf = requestAnimationFrame(step); }
+  };
+}
+
+const compassCOG = makeCompass('compass-cog', '#d29922');
+const compassAZ  = makeCompass('compass-az',  '#58a6ff');
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+const el  = id => document.getElementById(id);
+const fmt = (v, d=4) => typeof v==='number' ? v.toFixed(d) : String(v ?? '—');
+
+function setBar(barId, valId, value, maxAbs, color) {
+  const pct = Math.min(Math.abs(value)/maxAbs*50, 50);
+  const bar = el(barId);
+  bar.style.width  = pct + '%';
+  bar.style.left   = value >= 0 ? '50%' : (50-pct)+'%';
+  bar.style.background = color;
+  el(valId).textContent = (value>=0?'+':'') + value.toFixed(2) + '°';
+}
+function setDot(id, on, warn=false) {
+  const d = el(id);
+  d.classList.toggle('on',   on && !warn);
+  d.classList.toggle('warn', on && warn);
+}
+// ── Rate counters ─────────────────────────────────────────────────────────
+let imuCnt=0, corrCnt=0, insCnt=0;
+let imuTotal=0, corrTotal=0, insTotal=0, gnssTotal=0;
+setInterval(() => {
+  el('imu-rate').textContent  = imuCnt  + ' Hz';
+  el('corr-rate').textContent = corrCnt + ' Hz';
+  imuCnt = corrCnt = insCnt = 0;
+}, 1000);
+
+// ── Socket.IO ─────────────────────────────────────────────────────────────
+const socket = io();
+socket.on('connect',    () => { el('conn-badge').textContent='● CONNECTED';    el('conn-badge').classList.add('ok'); });
+socket.on('disconnect', () => { el('conn-badge').textContent='● DISCONNECTED'; el('conn-badge').classList.remove('ok'); });
+socket.on('conn', d => {
+  el('conn-badge').textContent = d.ok ? `● ${d.port}` : '● SERIAL ERROR';
+  el('conn-badge').classList.toggle('ok', d.ok);
+});
+
+// ── Raw IMU (100 Hz) ──────────────────────────────────────────────────────
+socket.on('imu', d => {
+  const sc = IMU_SCALES[d.imu_type] ?? DEFAULT_SCALE;
+  aX.push(d.accel_x * sc.accel); aY.push(d.accel_y * sc.accel); aZ.push(d.accel_z * sc.accel);
+  gX.push(d.gyro_x  * sc.gyro);  gY.push(d.gyro_y  * sc.gyro);  gZ.push(d.gyro_z  * sc.gyro);
+  dirty = true;
+  imuCnt++; imuTotal++;
+  el('imu-type').textContent = d.imu_type ?? '—';
+  el('imu-hex').textContent  = d.status ?? '—';
+  el('ft-imu').textContent   = `IMU: ${imuTotal}`;
+});
+
+// ── Corrected vehicle-frame IMU (100 Hz) ──────────────────────────────────
+socket.on('corr', d => {
+  vLa.push(d.long_acc);         // X fwd/back   m/s²
+  vLo.push(d.lat_acc);          // Y lateral    m/s²
+  vVe.push(d.vert_acc);         // Z vertical   m/s²
+  vPr.push(d.pitch_rate_degs);  // pitch        deg/s
+  vRr.push(d.roll_rate_degs);   // roll         deg/s
+  vYr.push(d.yaw_rate_degs);    // yaw          deg/s
+  dirty = true;
+  corrCnt++; corrTotal++;
+  el('ft-corr').textContent = `CORR: ${corrTotal}`;
+});
+
+// ── GNSS / BESTPOSA (1 Hz) ────────────────────────────────────────────────
+socket.on('gnss', d => {
+  gnssTotal++;
+  const ts = `GPS Wk ${d.week}  ${parseFloat(d.seconds).toFixed(3)} s`;
+  el('gps-time').textContent = ts;
+  el('ft-gps').textContent   = ts;
+  el('ft-gnss').textContent  = `GNSS: ${gnssTotal}`;
+  const gb = el('gnss-badge');
+  gb.textContent = d.sol_status; gb.className = 'badge ' + (d.sol_quality ?? '');
+  el('pos-type-badge').textContent = d.pos_type;
+  el('lat').innerHTML        = fmt(d.lat, 7) + '<span class="u">°</span>';
+  el('lon').innerHTML        = fmt(d.lon, 7) + '<span class="u">°</span>';
+  el('height').innerHTML     = fmt(d.height, 3)     + '<span class="u">m</span>';
+  el('undulation').innerHTML = fmt(d.undulation, 3) + '<span class="u">m</span>';
+  el('num-svs').textContent  = d.num_svs;
+  el('num-used').textContent = d.num_used;
+  el('diff-age').textContent = fmt(d.diff_age, 1);
+  el('lat-sig').innerHTML    = fmt(d.lat_sig, 4)    + '<span class="u">m</span>';
+  el('lon-sig').innerHTML    = fmt(d.lon_sig, 4)    + '<span class="u">m</span>';
+  el('height-sig').innerHTML = fmt(d.height_sig, 4) + '<span class="u">m</span>';
+});
+
+// ── INS / INSPVAXA (10 Hz) ────────────────────────────────────────────────
+socket.on('ins', d => {
+  insCnt++; insTotal++;
+  el('ft-ins').textContent = `INS: ${insTotal}`;
+  const ib = el('ins-badge');
+  ib.textContent = d.pose_label; ib.className = 'badge ' + (d.pose_quality ?? '');
+  const MS_TO_KMH = 3.6;
+  const spd = Math.sqrt(d.vel_n**2 + d.vel_e**2) * MS_TO_KMH;
+  el('vel-n').innerHTML = fmt(d.vel_n * MS_TO_KMH, 3) + '<span class="u">km/h</span>';
+  el('vel-e').innerHTML = fmt(d.vel_e * MS_TO_KMH, 3) + '<span class="u">km/h</span>';
+  el('vel-u').innerHTML = fmt(d.vel_u * MS_TO_KMH, 3) + '<span class="u">km/h</span>';
+  el('speed').innerHTML = spd.toFixed(3)  + '<span class="u">km/h</span>';
+  el('vn-sig').innerHTML = fmt(d.vel_n_sig * MS_TO_KMH, 3) + '<span class="u">km/h</span>';
+  el('ve-sig').innerHTML = fmt(d.vel_e_sig * MS_TO_KMH, 3) + '<span class="u">km/h</span>';
+
+  setBar('roll-bar',  'roll-v',  d.roll,  45, '#ff6b6b');
+  setBar('pitch-bar', 'pitch-v', d.pitch, 30, '#51cf66');
+  // Azimuth bar shows deviation from 180° midpoint
+  const azDev = ((d.azimuth % 180) + 180) % 180 - 90;
+  const ab = el('az-bar');
+  const pct = Math.min(Math.abs(azDev)/90*50, 50);
+  ab.style.width  = pct + '%';
+  ab.style.left   = azDev >= 0 ? '50%' : (50-pct)+'%';
+  ab.style.background = '#58a6ff';
+  el('az-v').textContent = d.azimuth.toFixed(2) + '°';
+
+  // COG from INS velocity — only meaningful above ~0.5 m/s
+  const spd2d = Math.sqrt(d.vel_n**2 + d.vel_e**2);
+  const cogBar = el('cog-bar');
+  if (spd2d >= 0.5) {
+    const cog = (Math.atan2(d.vel_e, d.vel_n) * 180 / Math.PI + 360) % 360;
+    const cogDev = ((cog % 180) + 180) % 180 - 90;
+    const cogPct = Math.min(Math.abs(cogDev)/90*50, 50);
+    cogBar.style.width  = cogPct + '%';
+    cogBar.style.left   = cogDev >= 0 ? '50%' : (50-cogPct)+'%';
+    cogBar.style.background = '#d29922';
+    el('cog-v').textContent = cog.toFixed(2) + '°';
+    compassCOG.set(cog);
+  } else {
+    cogBar.style.width = '0';
+    el('cog-v').textContent = '—°';
+  }
+  compassAZ.set(d.azimuth);
+
+  el('roll-sig').textContent  = '±' + fmt(d.roll_sig,  3) + '°';
+  el('pitch-sig').textContent = '±' + fmt(d.pitch_sig, 3) + '°';
+  el('az-sig').textContent    = '±' + fmt(d.azimuth_sig, 3) + '°';
+
+  setDot('f-ins',   d.ext_ins_enabled);
+  setDot('f-pos',   d.ext_pos_update);
+  setDot('f-vel',   d.ext_vel_update);
+  setDot('f-att',   d.ext_att_update);
+  setDot('f-zupt',  d.ext_zero_vel);
+  setDot('f-hdg',   d.ext_heading_update);
+  setDot('f-haln',  d.ext_heading_align);
+});
+
+// ── RF Spectrum / ITDETECT (1 Hz) ────────────────────────────────────────
+socket.on('cal', d => {
+  el('ft-cal').textContent     = `SPEC: ${d.analysis_type ?? '—'}`;
+  el('cal-type').textContent   = d.analysis_type ?? '—';
+  el('cal-band').textContent   = d.band_id ?? '—';
+  el('cal-freq').innerHTML     = fmt(d.center_freq, 1) + '<span class="u">Hz</span>';
+  el('cal-bw').innerHTML       = fmt(d.bandwidth,   1) + '<span class="u">Hz</span>';
+  el('cal-pwr').innerHTML      = fmt(d.power_dbm,   2) + '<span class="u">dBm</span>';
+  el('cal-noise').innerHTML    = fmt(d.noise_dbm,   2) + '<span class="u">dBm</span>';
+});
+
+// ── Installation Config / INSCONFIGSA (on change) ────────────────────────
+socket.on('inscfg', d => {
+  el('cfg-profile').textContent = d.profile    || '—';
+  el('cfg-align').textContent   = d.align_mode || '—';
+  el('cfg-ax').textContent = fmt(d.ant1_x, 3) + 'm';
+  el('cfg-ay').textContent = fmt(d.ant1_y, 3) + 'm';
+  el('cfg-az').textContent = fmt(d.ant1_z, 3) + 'm';
+  el('cfg-rx').textContent = fmt(d.rbv_x,  3) + '°';
+  el('cfg-ry').textContent = fmt(d.rbv_y,  3) + '°';
+  el('cfg-rz').textContent = fmt(d.rbv_z,  3) + '°';
+});
+
+// ── DOP (1 Hz) ───────────────────────────────────────────────────────────
+socket.on('dop', d => {
+  el('hdop').textContent = d.hdop.toFixed(2);
+  el('pdop').textContent = d.pdop.toFixed(2);
+  el('vdop').textContent = d.vdop.toFixed(2);
+});
+
+// ── Clock ─────────────────────────────────────────────────────────────────
+setInterval(() => { el('clock').textContent = new Date().toLocaleTimeString(); }, 1000);
+</script>
+</body>
+</html>
