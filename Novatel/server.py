@@ -20,8 +20,9 @@ import serial
 from flask import Flask
 from flask_socketio import SocketIO
 
-SERIAL_PORT = '/dev/ttyUSB0'
-BAUD_RATE   = 115200
+SERIAL_PORT   = '/dev/ttyUSB0'
+TARGET_BAUD   = 460800   # operating baud; auto-negotiated from 115200 on first connect
+_FALLBACK_BAUD = 115200  # factory default; used only during baud-rate upgrade
 
 app = Flask(__name__, static_folder=None)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
@@ -719,13 +720,61 @@ LOG_CMDS = [
 
 # ── Serial reader thread ──────────────────────────────────────────────────────
 
+def _probe_serial(port, baud, probe_cmd=b'log versiona once\r\n', timeout=2.0):
+    """Open port at baud, send probe_cmd, return True if any response arrives within timeout."""
+    try:
+        with serial.Serial(port, baud, timeout=0.1) as ser:
+            ser.write(probe_cmd)
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                chunk = ser.read(ser.in_waiting or 1)
+                if chunk and chunk.strip():
+                    return True
+    except serial.SerialException:
+        pass
+    return False
+
+
 def serial_reader():
     global _latest
 
+    connect_baud = TARGET_BAUD
+
     while True:
         try:
-            with serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1) as ser:
-                print(f'[serial] Connected to {SERIAL_PORT}')
+            with serial.Serial(SERIAL_PORT, connect_baud, timeout=1) as ser:
+                # ── Baud-rate negotiation ──────────────────────────────────────
+                # After a power cycle the PwrPak7 resets to 115200. We try
+                # TARGET_BAUD first; if nothing arrives within 2 s we reconnect
+                # at 115200 and send the COM upgrade command, then loop back to
+                # open at TARGET_BAUD for normal operation.
+                if connect_baud == TARGET_BAUD:
+                    ser.write(b'log versiona once\r\n')
+                    t0 = time.time()
+                    got_data = False
+                    while time.time() - t0 < 2.0:
+                        chunk = ser.read(ser.in_waiting or 1)
+                        if chunk and chunk.strip():
+                            got_data = True
+                            break
+                    if not got_data:
+                        print(f'[serial] No response at {TARGET_BAUD}; upgrading from {_FALLBACK_BAUD}')
+                        connect_baud = _FALLBACK_BAUD
+                        continue   # reopen at _FALLBACK_BAUD
+
+                if connect_baud == _FALLBACK_BAUD:
+                    # Issue baud-rate change — device switches immediately.
+                    # Do NOT send saveconfig so device resets cleanly on power cycle.
+                    cmd = f'com usb1 {TARGET_BAUD} n 8 1 n off on\r\n'
+                    ser.write(cmd.encode())
+                    print(f'[serial] → {cmd.strip()}')
+                    time.sleep(0.5)
+                    connect_baud = TARGET_BAUD
+                    print(f'[serial] Reconnecting at {TARGET_BAUD} baud')
+                    continue   # reopen at TARGET_BAUD
+
+                # ── Normal init at TARGET_BAUD ─────────────────────────────────
+                print(f'[serial] Connected to {SERIAL_PORT} at {connect_baud} baud')
                 socketio.emit('conn', {'ok': True, 'port': SERIAL_PORT})
 
                 # Stop all existing logs (including any persisted binary logs
@@ -786,6 +835,7 @@ def serial_reader():
         except serial.SerialException as exc:
             print(f'[serial] Error: {exc}')
             socketio.emit('conn', {'ok': False, 'error': str(exc)})
+            connect_baud = TARGET_BAUD   # reset to target on reconnect
             time.sleep(3)
 
 
