@@ -23,6 +23,22 @@ from flask_socketio import SocketIO
 SERIAL_PORT = '/dev/ttyUSB0'
 BAUD_RATE   = 115200
 
+_GPS_EPOCH_UNIX = 315964800  # Jan 6 1980 00:00:00 UTC
+_LEAP_SECONDS   = 18
+
+def _gps_dt(week, seconds):
+    """Return (datetime_str, unix_str) from GPS week+seconds; fall back to system time."""
+    try:
+        w = int(week)
+        if w > 0:  # week=0 means receiver hasn't locked GPS time yet
+            unix = _GPS_EPOCH_UNIX + w * 604800 + float(seconds) - _LEAP_SECONDS
+            dt   = datetime.datetime.utcfromtimestamp(unix)
+            return dt.strftime('%Y-%m-%d %H:%M:%S.%f'), f'{unix:.6f}'
+    except (TypeError, ValueError):
+        pass
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    return now.strftime('%Y-%m-%d %H:%M:%S.%f'), f'{now.timestamp():.6f}'
+
 app = Flask(__name__, static_folder=None)
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
 
@@ -36,7 +52,7 @@ def _on_connect():
 # ── Logging setup ─────────────────────────────────────────────────────────────
 
 _HERE     = os.path.dirname(os.path.abspath(__file__))
-_LOG_DIR  = os.path.join(_HERE, 'logs')
+_LOG_DIR  = os.path.join(_HERE, 'logs', 'Novatel')
 os.makedirs(_LOG_DIR, exist_ok=True)
 
 _SESSION  = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -145,13 +161,16 @@ def _write_imu_row(latest):
     """Write one row to the 100 Hz IMU CSV."""
     if _imu_w is None:
         return
-    now  = datetime.datetime.now()
     imu  = latest.get('imu')  or {}
     corr = latest.get('corr') or {}
     ins  = latest.get('ins')  or {}
+    # Prefer RAWIMUSXA measurement time; fall back to CORRIMUDATAA header time
+    week = imu.get('week') if imu.get('week') is not None else corr.get('week')
+    secs = imu.get('seconds') if imu.get('seconds') is not None else corr.get('seconds')
+    dt_str, unix_str = _gps_dt(week, secs)
     _imu_w.writerow({
-        'sys_datetime':       now.strftime('%Y-%m-%d %H:%M:%S.%f'),
-        'unix_timestamp':     f'{now.timestamp():.6f}',
+        'sys_datetime':       dt_str,
+        'unix_timestamp':     unix_str,
         'raw_accel_x_lsb':   imu.get('accel_x', ''),
         'raw_accel_y_lsb':   imu.get('accel_y', ''),
         'raw_accel_z_lsb':   imu.get('accel_z', ''),
@@ -180,13 +199,16 @@ def _write_main_row(latest):
     """Write one row to the 10 Hz combined CSV and text log (called on INS tick)."""
     if _csv_w is None:
         return
-    now  = datetime.datetime.now()
     ins       = latest.get('ins')       or {}
     ins_state = latest.get('ins_state') or {}
     corr = latest.get('corr') or {}
     imu  = latest.get('imu')  or {}
     gnss = latest.get('gnss') or {}
     cal  = latest.get('cal')  or {}
+    # Prefer INSPVAXA measurement time; fall back to BESTPOSA header time
+    week = ins.get('week') if ins.get('week') is not None else gnss.get('week')
+    secs = ins.get('seconds') if ins.get('seconds') is not None else gnss.get('seconds')
+    dt_str, unix_str = _gps_dt(week, secs)
 
     # Use full INSPVAXA status when available; fall back to INSSTATUSA label
     # so the column is never blank even when the INS hasn't started aligning.
@@ -202,8 +224,8 @@ def _write_main_row(latest):
         spd = ''
 
     row = {
-        'sys_datetime':        now.strftime('%Y-%m-%d %H:%M:%S.%f'),
-        'unix_timestamp':      f'{now.timestamp():.6f}',
+        'sys_datetime':        dt_str,
+        'unix_timestamp':      unix_str,
         'gps_week':            ins.get('week', '') or gnss.get('week', ''),
         'gps_seconds':         ins.get('seconds', '') or gnss.get('seconds', ''),
         'ins_status':          ins_status_str,
@@ -284,7 +306,7 @@ def _write_main_row(latest):
     status    = ins.get('pose_label', 'INACTIVE')
     spd_str   = f'{spd:.3f}' if isinstance(spd, float) else '—'
     log_line = (
-        f"[{now.strftime('%H:%M:%S.%f')}] {status:<30} | "
+        f"[{dt_str[11:]}] {status:<30} | "
         f"VehAccel(m/s²) X:{_fmt(corr.get('lat_acc'))} Y:{_fmt(corr.get('long_acc'))} Z:{_fmt(corr.get('vert_acc'))}  "
         f"VehGyro(°/s) X:{_fmt(corr.get('pitch_rate_degs'))} Y:{_fmt(corr.get('roll_rate_degs'))} Z:{_fmt(corr.get('yaw_rate_degs'))} | "
         f"RawIMU(m/s²) Ax:{_fmt(imu.get('accel_x_ms2'))} Ay:{_fmt(imu.get('accel_y_ms2'))} Az:{_fmt(imu.get('accel_z_ms2'))} "

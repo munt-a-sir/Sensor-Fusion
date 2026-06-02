@@ -5,7 +5,7 @@ import os
 import serial
 import time
 import websockets
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pyubx2 import UBXReader, UBXMessage, UBX_PROTOCOL, NMEA_PROTOCOL, SET_LAYER_RAM, TXN_NONE
 
 SERIAL_PORT = '/dev/ttyACM0'
@@ -129,9 +129,11 @@ async def serial_reader():
 
     prev_fusion_mode = None
     prev_calib = {}
+    _nav_utc_anchor  = None   # datetime with tzinfo=timezone.utc from last NAV-PVT
+    _nav_itow_anchor = None   # int iTOW (ms) from last NAV-PVT
 
     def read_loop():
-        nonlocal prev_fusion_mode, prev_calib
+        nonlocal prev_fusion_mode, prev_calib, _nav_utc_anchor, _nav_itow_anchor
         _IMU_FIELDS = [
             'sys_datetime', 'unix_timestamp',
             'accel_x_ms2', 'accel_y_ms2', 'accel_z_ms2',
@@ -206,10 +208,16 @@ async def serial_reader():
                             "accel": {"x": ax, "y": ay, "z": az},
                             "gyro":  {"x": gx, "y": gy, "z": gz},
                         }
-                    now = datetime.now()
+                    if _nav_utc_anchor is not None:
+                        delta_ms = int(parsed.timeTag) - _nav_itow_anchor
+                        if delta_ms < 0:
+                            delta_ms += 604800000  # iTOW week wrap
+                        esf_dt = _nav_utc_anchor + timedelta(milliseconds=delta_ms)
+                    else:
+                        esf_dt = datetime.now(tz=timezone.utc)
                     imu_w.writerow({
-                        'sys_datetime':    now.strftime('%Y-%m-%d %H:%M:%S.%f'),
-                        'unix_timestamp':  f'{now.timestamp():.6f}',
+                        'sys_datetime':    esf_dt.strftime('%Y-%m-%d %H:%M:%S.%f'),
+                        'unix_timestamp':  f'{esf_dt.timestamp():.6f}',
                         'accel_x_ms2':     round(esf_meas_latest[16] * ACCEL_SCALE, 6),
                         'accel_y_ms2':     round(esf_meas_latest[17] * ACCEL_SCALE, 6),
                         'accel_z_ms2':     round(esf_meas_latest[18] * ACCEL_SCALE, 6),
@@ -352,10 +360,20 @@ async def serial_reader():
                 if fix_type >= 2:
                     updates.update({'lat': lat, 'lon': lon})
                 log_state.update(updates)
-                now = datetime.now()
+                try:
+                    pvt_dt = datetime(
+                        parsed.year, parsed.month, parsed.day,
+                        parsed.hour, parsed.min, parsed.sec,
+                        max(0, int(parsed.nano)) // 1000,
+                        tzinfo=timezone.utc,
+                    )
+                    _nav_utc_anchor  = pvt_dt
+                    _nav_itow_anchor = int(parsed.iTOW)
+                except Exception:
+                    pvt_dt = datetime.now(tz=timezone.utc)
                 nav_w.writerow({
-                    'sys_datetime':  now.strftime('%Y-%m-%d %H:%M:%S.%f'),
-                    'unix_timestamp': f'{now.timestamp():.6f}',
+                    'sys_datetime':  pvt_dt.strftime('%Y-%m-%d %H:%M:%S.%f'),
+                    'unix_timestamp': f'{pvt_dt.timestamp():.6f}',
                     'fix_type':      fix_type,
                     'num_sv':        num_sv,
                     'lat_deg':       lat,
@@ -391,10 +409,16 @@ async def serial_reader():
                 pitch_acc = round(float(parsed.accPitch),   2)
                 hdg_acc   = round(float(parsed.accHeading), 2)
                 log_state.update({'nav_roll': nav_roll, 'nav_pitch': nav_pitch, 'nav_hdg': nav_hdg})
-                now = datetime.now()
+                if _nav_utc_anchor is not None:
+                    delta_ms = int(parsed.iTOW) - _nav_itow_anchor
+                    if delta_ms < 0:
+                        delta_ms += 604800000  # iTOW week wrap
+                    att_dt = _nav_utc_anchor + timedelta(milliseconds=delta_ms)
+                else:
+                    att_dt = datetime.now(tz=timezone.utc)
                 nav_w.writerow({
-                    'sys_datetime':    now.strftime('%Y-%m-%d %H:%M:%S.%f'),
-                    'unix_timestamp':  f'{now.timestamp():.6f}',
+                    'sys_datetime':    att_dt.strftime('%Y-%m-%d %H:%M:%S.%f'),
+                    'unix_timestamp':  f'{att_dt.timestamp():.6f}',
                     'roll_deg':        nav_roll,
                     'pitch_deg':       nav_pitch,
                     'heading_deg':     nav_hdg,

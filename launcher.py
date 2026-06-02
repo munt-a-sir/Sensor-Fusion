@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""
-Launch NovAtel PwrPak7 and EVK-M9DR dashboards simultaneously.
-Ctrl+C stops both servers and generates a vehicle-frame comparison chart.
-
-  NovAtel  → http://localhost:5000
-  EVK-M9DR → ws://localhost:5052  (open EVK-M9DR-dashboard.html)
-"""
-
 import re
 import sys
 import subprocess
@@ -25,11 +17,13 @@ NOVATEL_PORT = 5000
 EVK_PORT     = 5052
 EVK_HTTP_PORT = 5050
 
+NovatelFile = "/home/harisali/Geotab/rough/logs/Novatel/novatel_20260601_094726_imu100hz.csv"
+EVKFile     = "/home/harisali/Geotab/rough/logs/EVK-M9DR/evk_20260601_094726.log"
+
 # ── Log parsers ───────────────────────────────────────────────────────────────
 
 def _find_novatel_csv(after_utc: datetime) -> Path | None:
     logs = sorted((HERE / 'logs' / 'Novatel').glob('novatel_*.csv'))
-    # Return the most recently modified CSV created after session start
     for p in reversed(logs):
         mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
         if mtime >= after_utc:

@@ -56,7 +56,39 @@ def _latest_novatel(directory: Path) -> Path | None:
     return files_10hz[-1] if files_10hz else None
 
 
+_GPS_EPOCH_UNIX = 315964800
+_LEAP_SECONDS   = 18
+
 def _load(path: Path) -> pd.DataFrame:
+    """Generic loader: use unix_timestamp (always UTC) as the time axis."""
+    df = pd.read_csv(path)
+    df['t'] = pd.to_datetime(df['unix_timestamp'].astype(float), unit='s', utc=True)
+    return df.set_index('t').sort_index()
+
+
+def _load_novatel(path: Path) -> pd.DataFrame:
+    """NovAtel loader: reconstruct time from gps_week+gps_seconds when present,
+    otherwise fall back to unix_timestamp (always UTC-correct)."""
+    df = pd.read_csv(path)
+    if 'gps_week' in df.columns and 'gps_seconds' in df.columns:
+        mask = df['gps_week'].notna() & df['gps_seconds'].notna()
+        unix = (
+            _GPS_EPOCH_UNIX
+            + df.loc[mask, 'gps_week'].astype(int) * 604800
+            + df.loc[mask, 'gps_seconds'].astype(float)
+            - _LEAP_SECONDS
+        )
+        df.loc[mask, '_gps_unix'] = unix
+        df['t'] = pd.to_datetime(df['_gps_unix'].fillna(
+            df['unix_timestamp'].astype(float)
+        ), unit='s', utc=True)
+    else:
+        df['t'] = pd.to_datetime(df['unix_timestamp'].astype(float), unit='s', utc=True)
+    return df.set_index('t').sort_index()
+
+
+def _load_evk(path: Path) -> pd.DataFrame:
+    """EVK loader: unix_timestamp is UTC (from NAV-PVT or datetime.now(tz=utc))."""
     df = pd.read_csv(path)
     df['t'] = pd.to_datetime(df['unix_timestamp'].astype(float), unit='s', utc=True)
     return df.set_index('t').sort_index()
@@ -153,7 +185,7 @@ def _inject_novatel_heading(nov: pd.DataFrame, nov_path: Path) -> pd.DataFrame:
     if not sibling.exists():
         return nov
     print(f'[compare] NovAtel heading → {sibling.name}')
-    hz10 = _load(sibling)[['azimuth_deg']].dropna()
+    hz10 = _load_novatel(sibling)[['azimuth_deg']].dropna()
     return nov.join(hz10, how='left').ffill()
 
 
@@ -234,8 +266,8 @@ def main() -> None:
     print(f'[compare] EVK     → {evk_path.name}')
     print(f'[compare] NovAtel → {nov_path.name}')
 
-    evk = _load(evk_path)
-    nov = _load(nov_path)
+    evk = _load_evk(evk_path)
+    nov = _load_novatel(nov_path)
     evk = _inject_evk_heading(evk, evk_path)
     nov = _inject_novatel_heading(nov, nov_path)
     nov = _drop_inactive(nov, NOV_RAW_COLS)

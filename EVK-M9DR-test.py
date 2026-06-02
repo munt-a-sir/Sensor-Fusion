@@ -55,10 +55,10 @@ SENSOR_TYPE_LABELS = {
 }
 
 flag = {
-    "ESF-MEAS": False,
+    "ESF-MEAS": True,
     "ESF-INS": False,
     "ESF-STATUS": False,
-    "ESF-ALG": True,
+    "ESF-ALG": False,
     "NAV-ATT": False,
     "GNGGA": False,
     "GNGLL": False,
@@ -66,7 +66,7 @@ flag = {
     "GNVTG": False,
     "GNGSA": False,
     "GSV": False,
-    "GNZDA": False,
+    "GNZDA": True,
 }
 
 try:
