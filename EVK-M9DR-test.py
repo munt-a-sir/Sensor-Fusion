@@ -1,3 +1,5 @@
+import csv
+import time
 import serial
 from pyubx2 import UBXReader, UBXMessage, UBX_PROTOCOL, NMEA_PROTOCOL, SET_LAYER_RAM, TXN_NONE
 
@@ -69,6 +71,13 @@ flag = {
     "GNZDA": True,
 }
 
+imu_log  = open("imu_log.csv",  "w", newline="")
+rmc_log  = open("rmc_log.csv",  "w", newline="")
+imu_writer = csv.writer(imu_log)
+rmc_writer = csv.writer(rmc_log)
+imu_writer.writerow(["timestamp_s", "ax", "ay", "az", "gx", "gy", "gz"])
+rmc_writer.writerow(["timestamp_s", "gps_time", "gps_date", "lat", "lon", "spd_knots"])
+
 try:
     print(f"Starting to parse data from {serial_port}...")
     while True:
@@ -109,6 +118,7 @@ try:
                 f"Accel (m/s²)  X: {ax:+8.4f}  Y: {ay:+8.4f}  Z: {az:+8.4f}  |  "
                 f"Gyro (°/s)   X: {gx:+8.4f}  Y: {gy:+8.4f}  Z: {gz:+8.4f}"
             )
+            imu_writer.writerow([time.time(), ax, ay, az, gx, gy, gz])
 
         # --- IMU: compensated accel/gyro (vehicle frame) ---
         elif flag["ESF-INS"] and identity == 'ESF-INS':
@@ -145,6 +155,7 @@ try:
 
         elif flag["GNRMC"] and identity in ('GNRMC', 'GPRMC'):
             print(f"UTC: {parsed_data.time} [RMC] Position: {parsed_data.lat}, {parsed_data.lon} | Speed: {parsed_data.spd} knots | Time: {parsed_data.date} {parsed_data.time}")
+            rmc_writer.writerow([time.time(), parsed_data.time, parsed_data.date, parsed_data.lat, parsed_data.lon, parsed_data.spd])
         # --- Speed and course ---
         elif flag["GNVTG"] and identity in ('GNVTG', 'GPVTG'):
             print(f"[VTG] Speed: {parsed_data.sogk} km/h | Course: {parsed_data.cogt} deg true north")
@@ -170,3 +181,6 @@ except KeyboardInterrupt:
     print("Streaming stopped by user.")
 finally:
     stream.close()
+    imu_log.close()
+    rmc_log.close()
+    print("Log files saved: imu_log.csv, rmc_log.csv")
