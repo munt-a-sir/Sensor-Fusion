@@ -731,15 +731,19 @@ DIAG_CMDS = [
 
 LOG_CMDS = [
     'log rawimusxa ontime 0.01\r\n',       # 100 Hz  raw sensor-frame counts
-    'log corrimudataa ontime 0.01\r\n',    # 100 Hz  corrected vehicle-frame
-    'log inspvaxa ontime 1\r\n',           #   1 Hz  INS attitude + velocity
+    'log corrimudataa ontime 0.033\r\n',    # 30 Hz  corrected vehicle-frame
+    'log inspvaxa ontime 0.033\r\n',           #   30Hz Hz  INS attitude + velocity
     'log insstatusa ontime 1\r\n',         #   1 Hz  INS state machine status (even when inactive)
     'log insconfiga onchanged\r\n',        # on change  installation lever arm + body rotation
-    'log bestposa ontime 1\r\n',           #   1 Hz  GNSS-only position (ASCII)
+    'log bestposa ontime 0.5\r\n',           #   1 Hz  GNSS-only position (ASCII)
     'log itdetectstatusa ontime 1\r\n',    #   1 Hz  RF spectrum
     'log psrdopa ontime 1\r\n',            #   1 Hz  DOP values (HDOP, PDOP, VDOP, GDOP)
 ]
 
+OFFSET_CMDS = {
+    'setinstranslation ant1 1.5 0 -0.4\r\n',    # Setting the Lever arm to be the distance between antenna and gps.
+    'setinsrotation rbv 0 0 -90\r\n',           # Setting the installation angles as 90 degrees clockwise about the Z axis from the IMU to the Vehicle Frame
+}
 
 # ── Serial reader thread ──────────────────────────────────────────────────────
 
@@ -771,6 +775,14 @@ def serial_reader():
                     print(f'[serial] → {cmd.strip()}')
                     time.sleep(0.05)
 
+                for cmd in OFFSET_CMDS:
+                    ser.write(cmd.encode())
+                    print(f'[serial] → {cmd.strip()}')
+                    time.sleep(0.05)
+                _imu_pkt_count = 0
+                _imu_t0_wall   = None
+
+
                 while True:
                     raw = ser.readline()
                     if not raw:
@@ -784,6 +796,16 @@ def serial_reader():
                         if result:
                             _latest[event] = result
                             socketio.emit(event, result)
+                            if event == 'imu':
+                                wall_now = time.time()
+                                if _imu_t0_wall is None:
+                                    _imu_t0_wall = wall_now
+                                else:
+                                    expected = _imu_t0_wall + _imu_pkt_count * 0.01
+                                    if wall_now - expected > 0.5:
+                                        _imu_t0_wall = wall_now - _imu_pkt_count * 0.01
+                                result['_pkt_ts'] = _imu_t0_wall + _imu_pkt_count * 0.01
+                                _imu_pkt_count += 1
                             # 100 Hz IMU log: write on every raw + corrected IMU packet
                             if event in ('imu', 'corr'):
                                 _write_imu_row(_latest)

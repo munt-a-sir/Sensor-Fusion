@@ -22,17 +22,23 @@ INSPVAXA_COLS = [
     'velU_sig', 'roll_sig', 'pitch_sig', 'azimuth_sig', 'ext_status', 'CRC'
 ]
 
+counter = {
+    "RAWIMUSXA": 0,
+    "INSPVAXA": 0,
+}
 
 def parse_line(line, header):
     if header not in line:
         return None
     fields = line.strip().split(',')
     if header == "RAWIMUSXA":
+        counter["RAWIMUSXA"] += 1
         if len(fields) >= 13:
             fields[12:13] = fields[12].split('*')
         if len(fields) == len(RAWIMUSXA_COLS):
             return dict(zip(RAWIMUSXA_COLS, fields))
     elif header == "INSPVAXA":
+        counter["INSPVAXA"] += 1
         if len(fields) >= 32:
             fields[31] = fields[31].split('*')[0]
         if len(fields) == len(INSPVAXA_COLS):
@@ -50,7 +56,7 @@ def read_from_file(path, header):
     return pd.DataFrame(rows)
 
 
-def read_live(port=SERIAL_PORT, baud=BAUD_RATE, duration_sec=30, headers=None):
+def read_live(port=SERIAL_PORT, baud=BAUD_RATE, duration_sec=5, headers=None):
     if headers is None:
         headers = ["RAWIMUSXA", "INSPVAXA"]
 
@@ -64,11 +70,23 @@ def read_live(port=SERIAL_PORT, baud=BAUD_RATE, duration_sec=30, headers=None):
             ser.write(cmd.encode())
             print(f"Sent: {cmd.strip()}")
 
+        LOG_CMDS = [
+            'log rawimusxa ontime 0.1\r\n',       # 100 Hz  raw sensor-frame counts
+            'log corrimudataa ontime 0.033\r\n',    # 30 Hz  corrected vehicle-frame
+            'log inspvaxa ontime 0.033\r\n',           #   30Hz Hz  INS attitude + velocity
+            'log insstatusa ontime 1\r\n',         #   1 Hz  INS state machine status (even when inactive)
+            'log insconfiga onchanged\r\n',        # on change  installation lever arm + body rotation
+            'log bestposa ontime 0.5\r\n',           #   1 Hz  GNSS-only position (ASCII)
+            'log itdetectstatusa ontime 1\r\n',    #   1 Hz  RF spectrum
+            'log psrdopa ontime 1\r\n',            #   1 Hz  DOP values (HDOP, PDOP, VDOP, GDOP)
+        ]
+
         print(f"Reading for {duration_sec}s... (Ctrl+C to stop early)")
         start = time.time()
         try:
-            while time.time() - start < duration_sec:
+            while time.time() < start + 5:
                 raw = ser.readline()
+                print(raw)
                 if not raw:
                     continue
                 line = raw.decode('ascii', errors='ignore')
@@ -115,3 +133,4 @@ if __name__ == '__main__':
     if not imu_df.empty:
         print(imu_df.head())
         plot_imu(imu_df)
+    print(counter)

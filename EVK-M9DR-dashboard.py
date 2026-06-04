@@ -229,8 +229,7 @@ async def serial_reader():
                         'ins_accel_z_ms2': log_state.get('vaz', ''),
                         'ins_gyro_x_degs': log_state.get('vgx', ''),
                         'ins_gyro_y_degs': log_state.get('vgy', ''),
-                        'ins_gyro_z_degs': log_state.get('vgz', ''),
-                        'heading_deg':     log_state.get('ths_hdg', ''),
+                        'ins_gyro_z_degs': log_state.get('vgz', ''),    
                         'nav_hdg':         log_state.get('nav_hdg', ''),
                     })
             
@@ -239,6 +238,10 @@ async def serial_reader():
                 CALIB_NAMES  = {0: 'NOT CALIBRATED', 1: 'CALIBRATING', 2: 'CALIBRATED', 3: 'CALIBRATED'}
                 SENSOR_NAMES = {5: 'Gyro Z', 10: 'Temperature', 13: 'Gyro Y', 14: 'Gyro X', 16: 'Accel X', 17: 'Accel Y', 18: 'Accel Z'}
                 log_state['fusion'] = FUSION_NAMES.get(parsed.fusionMode, str(parsed.fusionMode))
+                log_state["fusionMode"] = parsed.fusionMode,
+                log_state["imuInitStatus"] = parsed.imuInitStatus,
+                log_state["insInitStatus"] = parsed.insInitStatus,
+                log_state["mntAlgStatus"] = parsed.mntAlgStatus,
                 if parsed.fusionMode != prev_fusion_mode:
                     log('info', f'Fusion mode → {log_state["fusion"]}', loop)
                     prev_fusion_mode = parsed.fusionMode
@@ -390,6 +393,12 @@ async def serial_reader():
                     'roll_deg':      log_state['nav_roll'],
                     'pitch_deg':     log_state['nav_pitch'],
                     'heading_deg':   log_state['nav_hdg'],
+                    'lat' : log_state.get('lat', '-'),
+                    'lon' : log_state.get('lon', '-'),
+                    'fusion': log_state.get("fusion", 'Initializing'),
+                        "imuInitStatus" : log_state.get('imuInitStatus', ''),
+                        "insInitStatus" : log_state.get('insInitStatus', ''),
+                        "mntAlgStatus" : log_state.get('mntAlgStatus', ''),
                 })
                 msg = {
                     "type": "NAV-PVT",

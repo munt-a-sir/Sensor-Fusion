@@ -17,9 +17,6 @@ NOVATEL_PORT = 5000
 EVK_PORT     = 5052
 EVK_HTTP_PORT = 5050
 
-NovatelFile = "/home/harisali/Geotab/rough/logs/Novatel/novatel_20260601_094726_imu100hz.csv"
-EVKFile     = "/home/harisali/Geotab/rough/logs/EVK-M9DR/evk_20260601_094726.log"
-
 # ── Log parsers ───────────────────────────────────────────────────────────────
 
 def _find_novatel_csv(after_utc: datetime) -> Path | None:

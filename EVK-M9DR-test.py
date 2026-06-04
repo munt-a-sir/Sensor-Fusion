@@ -3,15 +3,12 @@ import time
 import serial
 from pyubx2 import UBXReader, UBXMessage, UBX_PROTOCOL, NMEA_PROTOCOL, SET_LAYER_RAM, TXN_NONE
 
-serial_port = '/dev/ttyACM0'
+EVK_SERIAL_PORT = '/dev/ttyACM0'
+NOVATEL_SERIAL_PORT = '/dev/ttyUSB0'
 baudrate = 115200
 
-stream = serial.Serial(serial_port, baudrate, timeout=1)
+stream = serial.Serial(EVK_SERIAL_PORT, baudrate, timeout=1)
 
-# Have enable messages
-
-
-# Enable sensor fusion core + IMU, then enable message outputs on UART1
 cfg_keys = [
     ("CFG-SFCORE-USE_SF", 1),                 # Enable sensor fusion subsystem
     ("CFG-SFIMU-IMU_EN", 1),                  # Enable internal IMU
@@ -22,6 +19,21 @@ cfg_keys = [
     ("CFG-MSGOUT-UBX_ESF_STATUS_USB", 1),  # Sensor fusion status
     ("CFG-MSGOUT-UBX_NAV_ATT_USB", 1),     # Orientation (Euler)
     ("CFG-MSGOUT-NMEA_ID_ZDA_USB", 1),     # UTC timestamp
+    ("CFG-MSGOUT-NMEA_ID_RMC_USB", 1),
+]
+
+
+RAWIMUSXA_COLS = [
+    'head', 'week_num1', 'seconds1', 'IMU_info', 'week_num2', 'seconds2',
+    'Status', 'AccelZ', '-AccelY', 'AccelX', 'GyroZ', '-GyroY', 'GyroX', 'CRC'
+]
+
+INSPVAXA_COLS = [
+    'head', 'port', 'sequence', 'Idle_perc', 'time_status', 'week', 'seconds',
+    'receiver_status', 'reserved', 'sw_version', 'pose_type', 'lat', 'long',
+    'height', 'Undulation', 'vel_N', 'vel_E', 'vel_U', 'roll', 'pitch',
+    'azimuth', 'lat_sig', 'long_sig', 'height_sig', 'velN_sig', 'velE_sig',
+    'velU_sig', 'roll_sig', 'pitch_sig', 'azimuth_sig', 'ext_status', 'CRC'
 ]
 
 cfg_msg = UBXMessage.config_set(SET_LAYER_RAM, TXN_NONE, cfg_keys)
@@ -64,7 +76,7 @@ flag = {
     "NAV-ATT": False,
     "GNGGA": False,
     "GNGLL": False,
-    "GNRMC": False,
+    "GNRMC": True,
     "GNVTG": False,
     "GNGSA": False,
     "GSV": False,
@@ -79,7 +91,7 @@ imu_writer.writerow(["timestamp_s", "ax", "ay", "az", "gx", "gy", "gz"])
 rmc_writer.writerow(["timestamp_s", "gps_time", "gps_date", "lat", "lon", "spd_knots"])
 
 try:
-    print(f"Starting to parse data from {serial_port}...")
+    print(f"Starting to parse data from {t}...")
     while True:
         (raw_data, parsed_data) = ubr.read()
 
@@ -175,6 +187,7 @@ try:
 
         # --- Timestamp ---
         elif flag["GNZDA"] and identity in ('GNZDA', 'GPZDA'):
+            print(parsed_data)
             print(f"[ZDA] Time: {parsed_data.time} | Date: {parsed_data.day}/{parsed_data.month}/{parsed_data.year}")
 
 except KeyboardInterrupt:
