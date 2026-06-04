@@ -160,6 +160,7 @@ async def serial_reader():
             'head_mot_deg', 'head_veh_deg',
             'roll_deg', 'pitch_deg', 'heading_deg',
             'roll_acc_deg', 'pitch_acc_deg', 'heading_acc_deg',
+            'fusion', 'imuInitStatus', 'insInitStatus', 'mntAlgStatus', 'numSV',
         ]
         nav_fh = open(_NAV_PATH, 'w', newline='', buffering=1)
         nav_w  = csv.DictWriter(nav_fh, fieldnames=_NAV_FIELDS, extrasaction='ignore')
@@ -397,15 +398,19 @@ async def serial_reader():
                     'vel_d_ms':      vel_d,
                     'head_mot_deg':  head_mot,
                     'head_veh_deg':  head_veh,
-                    'roll_deg':      log_state['nav_roll'],
-                    'pitch_deg':     log_state['nav_pitch'],
-                    'heading_deg':   log_state['nav_hdg'],
+                    'roll_deg':        log_state.get('nav_roll', ''),
+                    'pitch_deg':       log_state.get('nav_pitch', ''),
+                    'heading_deg':     log_state.get('nav_hdg', ''),
+                    'roll_acc_deg':    log_state.get('nav_roll_acc', ''),
+                    'pitch_acc_deg':   log_state.get('nav_pitch_acc', ''),
+                    'heading_acc_deg': log_state.get('nav_hdg_acc', ''),
                     'lat' : log_state.get('lat', '-'),
                     'lon' : log_state.get('lon', '-'),
                     'fusion': log_state.get("fusion", 'Initializing'),
-                        "imuInitStatus" : log_state.get('imuInitStatus', ''),
-                        "insInitStatus" : log_state.get('insInitStatus', ''),
-                        "mntAlgStatus" : log_state.get('mntAlgStatus', ''),
+                    "imuInitStatus" : log_state.get('imuInitStatus', ''),
+                    "insInitStatus" : log_state.get('insInitStatus', ''),
+                    "mntAlgStatus" : log_state.get('mntAlgStatus', ''),
+                    "numSV": log_state.get('numSV', ''),
                 })
                 msg = {
                     "type": "NAV-PVT",
@@ -424,23 +429,9 @@ async def serial_reader():
                 roll_acc  = round(float(parsed.accRoll),    2)
                 pitch_acc = round(float(parsed.accPitch),   2)
                 hdg_acc   = round(float(parsed.accHeading), 2)
-                log_state.update({'nav_roll': nav_roll, 'nav_pitch': nav_pitch, 'nav_hdg': nav_hdg})
-                if _nav_utc_anchor is not None:
-                    delta_ms = int(parsed.iTOW) - _nav_itow_anchor
-                    if delta_ms < 0:
-                        delta_ms += 604800000  # iTOW week wrap
-                    att_dt = _nav_utc_anchor + timedelta(milliseconds=delta_ms)
-                else:
-                    att_dt = datetime.now(tz=timezone.utc)
-                nav_w.writerow({
-                    'sys_datetime':    att_dt.strftime('%Y-%m-%d %H:%M:%S.%f'),
-                    'unix_timestamp':  f'{att_dt.timestamp():.6f}',
-                    'roll_deg':        nav_roll,
-                    'pitch_deg':       nav_pitch,
-                    'heading_deg':     nav_hdg,
-                    'roll_acc_deg':    roll_acc,
-                    'pitch_acc_deg':   pitch_acc,
-                    'heading_acc_deg': hdg_acc,
+                log_state.update({
+                    'nav_roll': nav_roll, 'nav_pitch': nav_pitch, 'nav_hdg': nav_hdg,
+                    'nav_roll_acc': roll_acc, 'nav_pitch_acc': pitch_acc, 'nav_hdg_acc': hdg_acc,
                 })
                 msg = {
                     "type": "NAV-ATT",

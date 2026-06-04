@@ -91,7 +91,6 @@ imu_writer.writerow(["timestamp_s", "ax", "ay", "az", "gx", "gy", "gz"])
 rmc_writer.writerow(["timestamp_s", "gps_time", "gps_date", "lat", "lon", "spd_knots"])
 
 try:
-    print(f"Starting to parse data from {t}...")
     while True:
         (raw_data, parsed_data) = ubr.read()
 

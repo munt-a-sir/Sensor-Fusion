@@ -14,6 +14,7 @@ msgout_keys = [
     ("CFG-MSGOUT-UBX_ESF_STATUS_USB", 1),
     ("CFG-MSGOUT-UBX_NAV2_PVT_USB", 1),
     ("CFG-MSGOUT-UBX_NAV_SAT_USB", 1),
+    ("CFG-MSGOUT-UBX_NAV_ATT_USB", 1),
     # ("CFG-MSGOUT-NMEA_ID_ZDA_USB", 1),
     # ("CFG-MSGOUT-NMEA_ID_RMC_USB", 1),
 ]
@@ -89,13 +90,11 @@ while time.time() < start_time + 5:
                 gz = esf_raw[5]  * GYRO_SCALE
     
     if parsed_data.identity == "NAV-SAT":
-        print(parsed_data)
         counter["NAV-SAT"] = counter.get("NAV-SAT", 0) + 1
 
-    if parsed_data.identity == "NAV2-PVT":
+    if parsed_data.identity == "NAV-ATT":
         print(parsed_data)
-        counter["NAV2-PVT"] = counter.get("NAV2-PVT", 0) + 1
-    
+        counter["NAV-ATT"] = counter.get("NAV-ATT", 0) + 1
 
 print(counter)
 
