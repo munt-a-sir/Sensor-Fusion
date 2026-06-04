@@ -463,7 +463,7 @@ def parse_corrimudata(line):
         return None
     d = dict(zip(CORRIMUDATA_COLS, fields))
     try:
-        IMU_DT = 0.01  # 100 Hz → 0.01 s per sample
+        IMU_DT = 0.033  # 30 Hz → 0.033 s per sample (ontime 0.033)
         pr = float(d['pitch_rate']) / IMU_DT
         rr = float(d['roll_rate'])  / IMU_DT
         yr = float(d['yaw_rate'])   / IMU_DT

@@ -24,6 +24,11 @@ GYRO_SCALE  = 1 / 4096.0
 ACCEL_SCALE = 1 / 1024.0
 EMA_ALPHA   = 0.2   # lower = smoother but more lag; raise toward 1.0 for less smoothing
 
+# Static bias offsets measured from stationary session 2026-06-04 15:38:11.
+# Subtracted from raw values before logging so CSVs are already corrected.
+_ACCEL_BIAS = (-0.116383, +0.090099, +0.165772)  # X, Y, Z  (m/s²)
+_GYRO_BIAS  = (-0.176026, -0.026171, -0.043867)  # X, Y, Z  (°/s)
+
 FUSION_NAMES = {0: 'Initializing', 1: 'Fusion', 2: 'Suspended', 3: 'Disabled'}
 FIX_NAMES    = {0: 'No fix', 1: 'DR only', 2: '2D', 3: '3D', 4: 'GNSS+DR', 5: 'Time only'}
 
@@ -208,6 +213,8 @@ async def serial_reader():
                             "accel": {"x": ax, "y": ay, "z": az},
                             "gyro":  {"x": gx, "y": gy, "z": gz},
                         }
+                    if not any(k in samples for k in (5, 13, 14)):
+                        continue  # accel-only packet — gyro still stale, skip row
                     if _nav_utc_anchor is not None:
                         delta_ms = int(parsed.timeTag) - _nav_itow_anchor
                         if delta_ms < 0:
@@ -218,12 +225,12 @@ async def serial_reader():
                     imu_w.writerow({
                         'sys_datetime':    esf_dt.strftime('%Y-%m-%d %H:%M:%S.%f'),
                         'unix_timestamp':  f'{esf_dt.timestamp():.6f}',
-                        'accel_x_ms2':     round(esf_meas_latest[16] * ACCEL_SCALE, 6),
-                        'accel_y_ms2':     round(esf_meas_latest[17] * ACCEL_SCALE, 6),
-                        'accel_z_ms2':     round(esf_meas_latest[18] * ACCEL_SCALE, 6),
-                        'gyro_x_degs':     round(esf_meas_latest[14] * GYRO_SCALE, 6),
-                        'gyro_y_degs':     round(esf_meas_latest[13] * GYRO_SCALE, 6),
-                        'gyro_z_degs':     round(esf_meas_latest[5]  * GYRO_SCALE, 6),
+                        'accel_x_ms2':     round(esf_meas_latest[16] * ACCEL_SCALE - _ACCEL_BIAS[0], 6),
+                        'accel_y_ms2':     round(esf_meas_latest[17] * ACCEL_SCALE - _ACCEL_BIAS[1], 6),
+                        'accel_z_ms2':     round(esf_meas_latest[18] * ACCEL_SCALE - _ACCEL_BIAS[2], 6),
+                        'gyro_x_degs':     round(esf_meas_latest[14] * GYRO_SCALE  - _GYRO_BIAS[0],  6),
+                        'gyro_y_degs':     round(esf_meas_latest[13] * GYRO_SCALE  - _GYRO_BIAS[1],  6),
+                        'gyro_z_degs':     round(esf_meas_latest[5]  * GYRO_SCALE  - _GYRO_BIAS[2],  6),
                         'ins_accel_x_ms2': log_state.get('vax', ''),
                         'ins_accel_y_ms2': log_state.get('vay', ''),
                         'ins_accel_z_ms2': log_state.get('vaz', ''),
