@@ -24,6 +24,9 @@ GYRO_SCALE  = 1 / 4096.0
 ACCEL_SCALE = 1 / 1024.0
 EMA_ALPHA   = 0.2   # lower = smoother but more lag; raise toward 1.0 for less smoothing
 
+ACCEL_BIAS = (-0.116383, +0.090099, +0.165772)
+GYRO_BIAS  = (-0.176026, -0.026171, -0.043867)
+
 FUSION_NAMES = {0: 'Initializing', 1: 'Fusion', 2: 'Suspended', 3: 'Disabled'}
 FIX_NAMES    = {0: 'No fix', 1: 'DR only', 2: '2D', 3: '3D', 4: 'GNSS+DR', 5: 'Time only'}
 
@@ -162,6 +165,7 @@ async def serial_reader():
             'h_acc_m', 'v_acc_m',
             'speed_ms', 'vel_n_ms', 'vel_e_ms', 'vel_d_ms',
             'head_mot_deg', 'head_veh_deg',
+            'alg_roll_deg', 'alg_pitch_deg', 'alg_yaw_deg',
             'roll_deg', 'pitch_deg', 'heading_deg',
             'roll_acc_deg', 'pitch_acc_deg', 'heading_acc_deg',
             'fusion', 'imuInitStatus', 'insInitStatus', 'mntAlgStatus', 'numSV',
@@ -211,6 +215,8 @@ async def serial_reader():
                     gz = round(esf_meas_smoothed[5]  * GYRO_SCALE, 4)
                     log_state.update({'ax': ax, 'ay': ay, 'az': az, 'gx': gx, 'gy': gy, 'gz': gz})
                     now_t = time.monotonic()
+                    if not any(k in samples for k in (5, 13, 14)):
+                        continue
                     if now_t - _last_meas_bcast >= _DISPLAY_HZ:
                         _last_meas_bcast = now_t
                         msg = {
@@ -228,12 +234,12 @@ async def serial_reader():
                     imu_w.writerow({
                         'sys_datetime':    esf_dt.strftime('%Y-%m-%d %H:%M:%S.%f'),
                         'unix_timestamp':  f'{esf_dt.timestamp():.6f}',
-                        'accel_x_ms2':     round(esf_meas_latest[16] * ACCEL_SCALE, 6),
-                        'accel_y_ms2':     round(esf_meas_latest[17] * ACCEL_SCALE, 6),
-                        'accel_z_ms2':     round(esf_meas_latest[18] * ACCEL_SCALE, 6),
-                        'gyro_x_degs':     round(esf_meas_latest[14] * GYRO_SCALE, 6),
-                        'gyro_y_degs':     round(esf_meas_latest[13] * GYRO_SCALE, 6),
-                        'gyro_z_degs':     round(esf_meas_latest[5]  * GYRO_SCALE, 6),
+                        'accel_x_ms2':     round(esf_meas_latest[16] * ACCEL_SCALE - ACCEL_BIAS[0], 6),
+                        'accel_y_ms2':     round(esf_meas_latest[17] * ACCEL_SCALE - ACCEL_BIAS[1], 6),
+                        'accel_z_ms2':     round(esf_meas_latest[18] * ACCEL_SCALE - ACCEL_BIAS[2], 6),
+                        'gyro_x_degs':     round(esf_meas_latest[14] * GYRO_SCALE - GYRO_BIAS[0], 6),
+                        'gyro_y_degs':     round(esf_meas_latest[13] * GYRO_SCALE - GYRO_BIAS[1], 6),
+                        'gyro_z_degs':     round(esf_meas_latest[5]  * GYRO_SCALE - GYRO_BIAS[2], 6),
                         'ins_accel_x_ms2': log_state.get('vax', ''),
                         'ins_accel_y_ms2': log_state.get('vay', ''),
                         'ins_accel_z_ms2': log_state.get('vaz', ''),
@@ -291,7 +297,7 @@ async def serial_reader():
                 }
 
             elif identity == 'ESF-ALG':
-                log_state['hdg']       = round(parsed.yaw,   2)
+                log_state['alg-yaw']       = round(parsed.yaw,   2)
                 log_state['alg_roll']  = round(parsed.roll,  2)
                 log_state['alg_pitch'] = round(parsed.pitch, 2)
                 msg = {
@@ -376,7 +382,7 @@ async def serial_reader():
                 nav_w.writerow({
                     'sys_datetime':  pvt_dt.strftime('%Y-%m-%d %H:%M:%S.%f'),
                     'unix_timestamp': f'{pvt_dt.timestamp():.6f}',
-                    'fix_type':      fix_type,
+                    'fix_type':      fix_type, #NAV-PVT
                     'num_sv':        log_state.get('numSV', ''), #NAV-SAT
                     'lat_deg':       log_state.get('lat', ''), #GNGGA
                     'lon_deg':       log_state.get('lon', ''), #GNGGA
@@ -393,6 +399,9 @@ async def serial_reader():
                     'vel_d_ms':      vel_d, #NAV-PVT
                     'head_mot_deg':  head_mot, #NAV-PVT
                     'head_veh_deg':  head_veh, #NAV-PVT
+                    'alg_roll_deg':    log_state.get('alg_roll', ''), #ESF-ALG
+                    'alg_pitch_deg':   log_state.get('alg_pitch', ''), #ESF-ALG
+                    'alg_yaw_deg':     log_state.get('alg-yaw', ''), #ESF-ALG
                     'roll_deg':        log_state.get('nav_roll', ''), #NAV-ATT
                     'pitch_deg':       log_state.get('nav_pitch', ''), #NAV-ATT
                     'heading_deg':     log_state.get('nav_hdg', ''), #NAV-ATT
