@@ -211,20 +211,20 @@ def _inject_evk_attitude(evk: pd.DataFrame, evk_path: Path) -> pd.DataFrame:
 
 
 def _inject_novatel_att(nov: pd.DataFrame, nov_path: Path) -> pd.DataFrame:
-    """Ensure roll_deg and pitch_deg are present; pull from 10 Hz sibling if using 100 Hz file."""
+    """Ensure roll_deg and pitch_deg are present; pull from 30 Hz sibling if using 100 Hz file."""
     if 'roll_deg' in nov.columns and 'pitch_deg' in nov.columns:
         return nov
     sibling = Path(re.sub(r'_imu100hz.*\.csv$', '.csv', str(nov_path)))
     if not sibling.exists():
         return nov
     print(f'[compare] NovAtel attitude → {sibling.name}')
-    hz10 = _load_novatel(sibling)[['roll_deg', 'pitch_deg']].dropna(how='all')
-    return nov.join(hz10, how='left').ffill()
+    hz30 = _load_novatel(sibling)[['roll_deg', 'pitch_deg']].dropna(how='all')
+    return nov.join(hz30, how='left').ffill()
 
 
 def _inject_novatel_veh(nov: pd.DataFrame, nov_path: Path) -> pd.DataFrame:
     """If using the 100 Hz IMU file, vehicle-frame cols may be sparse — ffill them.
-    If cols are missing entirely, pull from the 10 Hz sibling CSV."""
+    If cols are missing entirely, pull from the 30 Hz sibling CSV."""
     veh_present = [c for c in NOV_VEH_COLS if c in nov.columns]
     if veh_present:
         nov = nov.copy()
