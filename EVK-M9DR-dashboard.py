@@ -120,8 +120,8 @@ async def serial_reader():
         ("CFG-MSGOUT-NMEA_ID_ZDA_USB",    1),
     ]
     rate_keys = [
-        ("CFG-RATE-MEAS",   40),   # 40 ms = 25 Hz
-        ("CFG-RATE-NAV",     1),
+        ("CFG-RATE-MEAS",   10),   # 40 ms = 25 Hz
+        ("CFG-RATE-NAV",     10),
         ("CFG-RATE-TIMEREF", 0),
     ]
 

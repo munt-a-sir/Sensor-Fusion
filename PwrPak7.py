@@ -101,24 +101,24 @@ def read_live(port=SERIAL_PORT, baud=BAUD_RATE, duration_sec=5, headers=None):
     return {h: pd.DataFrame(v) for h, v in results.items()}
 
 
-def plot_imu(df):
-    if df.empty:
-        print("No RAWIMUSXA data to plot.")
-        return
+# def plot_imu(df):
+#     if df.empty:
+#         print("No RAWIMUSXA data to plot.")
+#         return
 
-    for col in ['AccelX', 'AccelZ', 'GyroX', 'GyroZ']:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-    df['AccelY'] = pd.to_numeric(df['-AccelY'], errors='coerce') * -1
-    df['GyroY'] = pd.to_numeric(df['-GyroY'], errors='coerce') * -1
+#     for col in ['AccelX', 'AccelZ', 'GyroX', 'GyroZ']:
+#         df[col] = pd.to_numeric(df[col], errors='coerce')
+#     df['AccelY'] = pd.to_numeric(df['-AccelY'], errors='coerce') * -1
+#     df['GyroY'] = pd.to_numeric(df['-GyroY'], errors='coerce') * -1
 
-    fig = make_subplots(rows=2, cols=1, subplot_titles=('Accelerometer', 'Gyroscope'))
+#     fig = make_subplots(rows=2, cols=1, subplot_titles=('Accelerometer', 'Gyroscope'))
 
-    for col, row in [('AccelX', 1), ('AccelY', 1), ('AccelZ', 1),
-                     ('GyroX', 2), ('GyroY', 2), ('GyroZ', 2)]:
-        fig.add_trace(go.Scatter(y=df[col], name=col, mode='lines'), row=row, col=1)
+#     for col, row in [('AccelX', 1), ('AccelY', 1), ('AccelZ', 1),
+#                      ('GyroX', 2), ('GyroY', 2), ('GyroZ', 2)]:
+#         fig.add_trace(go.Scatter(y=df[col], name=col, mode='lines'), row=row, col=1)
 
-    fig.update_layout(template='plotly_dark', title='PwrPak7 Raw IMU')
-    fig.show()
+#     fig.update_layout(template='plotly_dark', title='PwrPak7 Raw IMU')
+#     fig.show()
 
 
 if __name__ == '__main__':
@@ -130,7 +130,7 @@ if __name__ == '__main__':
     print(f"\nRAWIMUSXA rows: {len(imu_df)}")
     print(f"INSPVAXA rows:  {len(ins_df)}")
 
-    if not imu_df.empty:
-        print(imu_df.head())
-        plot_imu(imu_df)
+    # if not imu_df.empty:
+    #     print(imu_df.head())
+    #     plot_imu(imu_df)
     print(counter)
