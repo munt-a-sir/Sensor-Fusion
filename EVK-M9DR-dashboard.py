@@ -6,7 +6,7 @@ import serial
 import time
 import websockets
 from datetime import datetime, timedelta, timezone
-from pyubx2 import UBXReader, UBXMessage, UBX_PROTOCOL, NMEA_PROTOCOL, SET_LAYER_RAM, TXN_NONE
+from pyubx2 import UBXReader, UBXMessage, UBX_PROTOCOL, NMEA_PROTOCOL, SET_LAYER_BBR, TXN_NONE
 
 SERIAL_PORT = '/dev/ttyACM0'
 BAUDRATE    = 115200
@@ -23,11 +23,6 @@ _NAV_PATH    = os.path.join(_LOG_DIR, f'EVK-M9DR-{_SESSION}_nav.csv')
 GYRO_SCALE  = 1 / 4096.0
 ACCEL_SCALE = 1 / 1024.0
 EMA_ALPHA   = 0.2   # lower = smoother but more lag; raise toward 1.0 for less smoothing
-
-# Static bias offsets measured from stationary session 2026-06-04 15:38:11.
-# Subtracted from raw values before logging so CSVs are already corrected.
-_ACCEL_BIAS = (-0.116383, +0.090099, +0.165772)  # X, Y, Z  (m/s²)
-_GYRO_BIAS  = (-0.176026, -0.026171, -0.043867)  # X, Y, Z  (°/s)
 
 FUSION_NAMES = {0: 'Initializing', 1: 'Fusion', 2: 'Suspended', 3: 'Disabled'}
 FIX_NAMES    = {0: 'No fix', 1: 'DR only', 2: '2D', 3: '3D', 4: 'GNSS+DR', 5: 'Time only'}
@@ -104,7 +99,7 @@ async def ws_handler(websocket):
 async def serial_reader():
     stream = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=1)
 
-    cfg_keys = [
+    msgout_keys = [
         ("CFG-SFCORE-USE_SF",             1),
         ("CFG-SFIMU-IMU_EN",              1),
         ("CFG-SFIMU-AUTO_MNTALG_ENA",     1),
@@ -112,22 +107,31 @@ async def serial_reader():
         ("CFG-MSGOUT-UBX_ESF_ALG_USB",    1),
         ("CFG-MSGOUT-UBX_ESF_INS_USB",    1),
         ("CFG-MSGOUT-UBX_ESF_STATUS_USB", 1),
-        ("CFG-MSGOUT-UBX_NAV_PVT_USB",     1),
-        ("CFG-MSGOUT-UBX_NAV_ATT_USB",     1),
-        ("CFG-MSGOUT-UBX_NAV_STATUS_USB",  1),
+        ("CFG-MSGOUT-UBX_NAV_PVT_USB",    1),
+        ("CFG-MSGOUT-UBX_NAV_ATT_USB",    1),
+        ("CFG-MSGOUT-UBX_NAV_STATUS_USB", 1),
         ("CFG-MSGOUT-NMEA_ID_GGA_USB",    1),
         ("CFG-MSGOUT-NMEA_ID_GSA_USB",    1),
         ("CFG-MSGOUT-NMEA_ID_RMC_USB",    1),
         ("CFG-MSGOUT-NMEA_ID_THS_USB",    1),
         ("CFG-MSGOUT-NMEA_ID_ZDA_USB",    1),
-        # 100 Hz: measurement period = 1000/10 ≈ 10 ms
-        ("CFG-RATE-MEAS",    10),
-        ("CFG-RATE-NAV",      1),
-        ("CFG-RATE-TIMEREF",  0),
     ]
-    cfg_msg = UBXMessage.config_set(SET_LAYER_RAM, TXN_NONE, cfg_keys)
-    stream.write(cfg_msg.serialize())
-    print("Config sent.")
+    rate_keys = [
+        ("CFG-RATE-MEAS",   40),   # 40 ms = 25 Hz
+        ("CFG-RATE-NAV",     1),
+        ("CFG-RATE-TIMEREF", 0),
+    ]
+
+    def send_cfg(keys, label):
+        msg = UBXMessage.config_set(SET_LAYER_BBR, TXN_NONE, keys)
+        stream.write(msg.serialize())
+        stream.flush()
+        time.sleep(0.1)
+        print(f"{label} sent.")
+
+    send_cfg(msgout_keys, "MSGOUT config")
+    send_cfg(rate_keys,   "RATE config")
+    stream.reset_input_buffer()
 
     ubr = UBXReader(stream, protfilter=UBX_PROTOCOL | NMEA_PROTOCOL)
     loop = asyncio.get_event_loop()
@@ -214,8 +218,6 @@ async def serial_reader():
                             "accel": {"x": ax, "y": ay, "z": az},
                             "gyro":  {"x": gx, "y": gy, "z": gz},
                         }
-                    if not any(k in samples for k in (5, 13, 14)):
-                        continue  # accel-only packet — gyro still stale, skip row
                     if _nav_utc_anchor is not None:
                         delta_ms = int(parsed.timeTag) - _nav_itow_anchor
                         if delta_ms < 0:
@@ -226,12 +228,12 @@ async def serial_reader():
                     imu_w.writerow({
                         'sys_datetime':    esf_dt.strftime('%Y-%m-%d %H:%M:%S.%f'),
                         'unix_timestamp':  f'{esf_dt.timestamp():.6f}',
-                        'accel_x_ms2':     round(esf_meas_latest[16] * ACCEL_SCALE - _ACCEL_BIAS[0], 6),
-                        'accel_y_ms2':     round(esf_meas_latest[17] * ACCEL_SCALE - _ACCEL_BIAS[1], 6),
-                        'accel_z_ms2':     round(esf_meas_latest[18] * ACCEL_SCALE - _ACCEL_BIAS[2], 6),
-                        'gyro_x_degs':     round(esf_meas_latest[14] * GYRO_SCALE  - _GYRO_BIAS[0],  6),
-                        'gyro_y_degs':     round(esf_meas_latest[13] * GYRO_SCALE  - _GYRO_BIAS[1],  6),
-                        'gyro_z_degs':     round(esf_meas_latest[5]  * GYRO_SCALE  - _GYRO_BIAS[2],  6),
+                        'accel_x_ms2':     round(esf_meas_latest[16] * ACCEL_SCALE, 6),
+                        'accel_y_ms2':     round(esf_meas_latest[17] * ACCEL_SCALE, 6),
+                        'accel_z_ms2':     round(esf_meas_latest[18] * ACCEL_SCALE, 6),
+                        'gyro_x_degs':     round(esf_meas_latest[14] * GYRO_SCALE, 6),
+                        'gyro_y_degs':     round(esf_meas_latest[13] * GYRO_SCALE, 6),
+                        'gyro_z_degs':     round(esf_meas_latest[5]  * GYRO_SCALE, 6),
                         'ins_accel_x_ms2': log_state.get('vax', ''),
                         'ins_accel_y_ms2': log_state.get('vay', ''),
                         'ins_accel_z_ms2': log_state.get('vaz', ''),
@@ -300,17 +302,6 @@ async def serial_reader():
                     "status": parsed.status,
                 }
 
-            elif identity in ('GNTHS', 'GPTHS', 'GLTHS', 'GATHS'):
-                ths_mi = str(parsed.mi)
-                if parsed.headt != '':
-                    ths_hdg = round(float(parsed.headt), 2)
-                    log_state.update({'ths_hdg': ths_hdg, 'ths_mi': ths_mi})
-                    msg = {
-                        "type":    "THS",
-                        "heading": ths_hdg,
-                        "mi":      ths_mi,
-                    }
-
             elif identity in ('GNGGA', 'GPGGA'):
                 utc = str(parsed.time)
                 log_state['utc'] = utc
@@ -327,17 +318,17 @@ async def serial_reader():
                         "time":  utc,
                     }
 
-            elif identity in ('GNGSA', 'GPGSA'):
-                hdop = float(parsed.HDOP) if parsed.HDOP else None
-                vdop = float(parsed.VDOP) if parsed.VDOP else None
-                pdop = float(parsed.PDOP) if parsed.PDOP else None
-                log_state.update({'hdop': hdop, 'vdop': vdop, 'pdop': pdop})
-                msg = {
-                    "type": "GSA",
-                    "hdop": hdop,
-                    "vdop": vdop,
-                    "pdop": pdop,
-                }
+            # elif identity in ('GNGSA', 'GPGSA'):
+            #     hdop = float(parsed.HDOP) if parsed.HDOP else None
+            #     vdop = float(parsed.VDOP) if parsed.VDOP else None
+            #     pdop = float(parsed.PDOP) if parsed.PDOP else None
+            #     log_state.update({'hdop': hdop, 'vdop': vdop, 'pdop': pdop})
+            #     msg = {
+            #         "type": "GSA",
+            #         "hdop": hdop,
+            #         "vdop": vdop,
+            #         "pdop": pdop,
+            #     }
 
             elif identity in ('GNRMC', 'GPRMC'):
                 utc = str(parsed.time)
@@ -350,8 +341,8 @@ async def serial_reader():
 
             elif identity == 'NAV-PVT':
                 fix_type = int(parsed.fixType)
-                lat      = float(parsed.lat)
-                lon      = float(parsed.lon)
+                fused_lat      = float(parsed.lat)
+                fused_lon      = float(parsed.lon)
                 height   = round(parsed.height / 1000.0, 3)   # mm → m
                 h_acc    = round(parsed.hAcc   / 1000.0, 3)   # mm → m
                 v_acc    = round(parsed.vAcc   / 1000.0, 3)   # mm → m
@@ -369,7 +360,7 @@ async def serial_reader():
                     'head_mot': head_mot, 'head_veh': head_veh,
                 }
                 if fix_type >= 2:
-                    updates.update({'lat': lat, 'lon': lon})
+                    updates.update({'lat': fused_lat, 'lon': fused_lon})
                 log_state.update(updates)
                 try:
                     pvt_dt = datetime(
@@ -386,36 +377,38 @@ async def serial_reader():
                     'sys_datetime':  pvt_dt.strftime('%Y-%m-%d %H:%M:%S.%f'),
                     'unix_timestamp': f'{pvt_dt.timestamp():.6f}',
                     'fix_type':      fix_type,
-                    'num_sv':        num_sv,
-                    'lat_deg':       lat,
-                    'lon_deg':       lon,
-                    'height_m':      height,
-                    'h_acc_m':       h_acc,
-                    'v_acc_m':       v_acc,
-                    'speed_ms':      speed,
-                    'vel_n_ms':      vel_n,
-                    'vel_e_ms':      vel_e,
-                    'vel_d_ms':      vel_d,
-                    'head_mot_deg':  head_mot,
-                    'head_veh_deg':  head_veh,
-                    'roll_deg':        log_state.get('nav_roll', ''),
-                    'pitch_deg':       log_state.get('nav_pitch', ''),
-                    'heading_deg':     log_state.get('nav_hdg', ''),
-                    'roll_acc_deg':    log_state.get('nav_roll_acc', ''),
-                    'pitch_acc_deg':   log_state.get('nav_pitch_acc', ''),
-                    'heading_acc_deg': log_state.get('nav_hdg_acc', ''),
-                    'lat' : log_state.get('lat', '-'),
-                    'lon' : log_state.get('lon', '-'),
-                    'fusion': log_state.get("fusion", 'Initializing'),
-                    "imuInitStatus" : log_state.get('imuInitStatus', ''),
-                    "insInitStatus" : log_state.get('insInitStatus', ''),
-                    "mntAlgStatus" : log_state.get('mntAlgStatus', ''),
-                    "numSV": log_state.get('numSV', ''),
+                    'num_sv':        log_state.get('numSV', ''), #NAV-SAT
+                    'lat_deg':       log_state.get('lat', ''), #GNGGA
+                    'lon_deg':       log_state.get('lon', ''), #GNGGA
+                    'fused_lat_deg': fused_lat, #NAV-PVT
+                    'fused_lon_deg': fused_lon, #NAV-PVT
+                    "GNSS_lat_deg": log_state.get('gnss_lat', ''), #NAV2-PVT
+                    "GNSS_lon_deg": log_state.get('gnss_lon', ''), #NAV2-PVT
+                    'height_m':      height, #NAV-PVT
+                    'h_acc_m':       h_acc, #NAV-PVT
+                    'v_acc_m':       v_acc, #NAV-PVT
+                    'speed_ms':      speed, #NAV-PVT
+                    'vel_n_ms':      vel_n, #NAV-PVT
+                    'vel_e_ms':      vel_e, #NAV-PVT
+                    'vel_d_ms':      vel_d, #NAV-PVT
+                    'head_mot_deg':  head_mot, #NAV-PVT
+                    'head_veh_deg':  head_veh, #NAV-PVT
+                    'roll_deg':        log_state.get('nav_roll', ''), #NAV-ATT
+                    'pitch_deg':       log_state.get('nav_pitch', ''), #NAV-ATT
+                    'heading_deg':     log_state.get('nav_hdg', ''), #NAV-ATT
+                    'roll_acc_deg':    log_state.get('nav_roll_acc', ''), #NAV-ATT
+                    'pitch_acc_deg':   log_state.get('nav_pitch_acc', ''), #NAV-ATT
+                    'heading_acc_deg': log_state.get('nav_hdg_acc', ''), #NAV-ATT
+                    'fusion': log_state.get("fusion", 'Initializing'), #ESF-STATUS
+                    "imuInitStatus" : log_state.get('imuInitStatus', ''), #ESF-STATUS
+                    "insInitStatus" : log_state.get('insInitStatus', ''), #ESF-STATUS
+                    "mntAlgStatus" : log_state.get('mntAlgStatus', ''), #ESF-STATUS
+                    "numSV": log_state.get('numSV', ''), #NAV-SAT
                 })
                 msg = {
                     "type": "NAV-PVT",
                     "fixType": fix_type, "numSV": num_sv,
-                    "lat": lat, "lon": lon, "alt": height,
+                    "lat": fused_lat, "lon": fused_lon, "alt": height,
                     "speed": speed,
                     "velN": vel_n, "velE": vel_e, "velD": vel_d,
                     "hAcc": h_acc, "vAcc": v_acc,
@@ -438,14 +431,21 @@ async def serial_reader():
                     "roll": nav_roll, "pitch": nav_pitch, "heading": nav_hdg,
                 }
 
-            elif identity == 'NAV-STATUS':
-                fix_type = int(parsed.gpsFix)
-                log_state['fix_type'] = fix_type
-                msg = {
-                    "type": "NAV-STATUS",
-                    "gpsFix": fix_type,
-                    "gpsFixOk": bool(getattr(parsed, 'gpsFixOk', int(getattr(parsed, 'flags', 0)) & 1)),
-                }
+            # elif identity == 'NAV-STATUS':
+            #     fix_type = int(parsed.gpsFix)
+            #     log_state['fix_type'] = fix_type
+            #     msg = {
+            #         "type": "NAV-STATUS",
+            #         "gpsFix": fix_type,
+            #         "gpsFixOk": bool(getattr(parsed, 'gpsFixOk', int(getattr(parsed, 'flags', 0)) & 1)),
+            #     }
+
+            elif identity == 'NAV2-PVT':
+                log_state['gnss_lat'] = float(parsed.lat)
+                log_state['gnss_lon'] = float(parsed.lon)
+            
+            elif identity == 'NAV-SAT':
+                log_state['numSV'] = int(parsed.numSvs)
 
             if msg:
                 asyncio.run_coroutine_threadsafe(broadcast(msg), loop)

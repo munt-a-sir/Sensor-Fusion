@@ -61,7 +61,7 @@ ACCEL_SCALE = 1 / 1024.0
 def signed24(val):
     return val - (1 << 24) if val & (1 << 23) else val
 
-while time.time() < start_time + 5:
+while time.time() < start_time + 10:
     (_, parsed_data) = ubr.read()
 
     if parsed_data is None:
@@ -90,10 +90,10 @@ while time.time() < start_time + 5:
                 gz = esf_raw[5]  * GYRO_SCALE
     
     if parsed_data.identity == "NAV-SAT":
+        print(parsed_data.numSvs)
         counter["NAV-SAT"] = counter.get("NAV-SAT", 0) + 1
 
     if parsed_data.identity == "NAV-ATT":
-        print(parsed_data)
         counter["NAV-ATT"] = counter.get("NAV-ATT", 0) + 1
 
 print(counter)
