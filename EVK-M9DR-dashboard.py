@@ -24,8 +24,8 @@ GYRO_SCALE  = 1 / 4096.0
 ACCEL_SCALE = 1 / 1024.0
 EMA_ALPHA   = 0.2   # lower = smoother but more lag; raise toward 1.0 for less smoothing
 
-ACCEL_BIAS = (-0.116383, +0.090099, +0.165772)
-GYRO_BIAS  = (-0.176026, -0.026171, -0.043867)
+ACCEL_BIAS = (-0.1241431531, -0.1654409063, -0.1391042905)
+GYRO_BIAS  = (0.1735012185, 0.0217304757, 0.05897571614)
 
 FUSION_NAMES = {0: 'Initializing', 1: 'Fusion', 2: 'Suspended', 3: 'Disabled'}
 FIX_NAMES    = {0: 'No fix', 1: 'DR only', 2: '2D', 3: '3D', 4: 'GNSS+DR', 5: 'Time only'}
