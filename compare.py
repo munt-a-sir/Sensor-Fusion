@@ -64,7 +64,7 @@ EVK_VEH_COLS = [
 
 
 def _latest_evk(directory: Path) -> Path | None:
-    files = sorted(directory.glob('*_imu.csv'))
+    files = sorted(directory.glob('*_imu.csv'), key=lambda p: p.stat().st_mtime)
     return files[-1] if files else None
 
 
